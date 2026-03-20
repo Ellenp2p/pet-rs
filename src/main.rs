@@ -168,6 +168,13 @@ fn main() {
     // drag state (we use the OS-level drag helper)
     let mut dragging = false;
     let mut last_cursor_pos: PhysicalPosition<f64> = PhysicalPosition::new(0.0, 0.0);
+    // simple runtime state for pause/menu
+    let mut paused = false;
+    let mut menu_open = false;
+    let mut menu_x: i32 = 0;
+    let mut menu_y: i32 = 0;
+    let menu_w: i32 = 140;
+    let menu_item_h: i32 = 28;
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
@@ -200,7 +207,30 @@ fn main() {
                             let phys = window.inner_size(); // physical size in pixels
                             let img_x = ((pos.x * (sprite_w as f64)) / (phys.width as f64)).round() as i32;
                             let img_y = ((pos.y * (sprite_h as f64)) / (phys.height as f64)).round() as i32;
-                            if img_x >= 0
+                            if menu_open {
+                                // check if click is inside the simple menu
+                                let mx0 = menu_x;
+                                let my0 = menu_y;
+                                let mx1 = mx0 + menu_w;
+                                let my1 = my0 + menu_item_h * 2;
+                                if img_x >= mx0 && img_x < mx1 && img_y >= my0 && img_y < my1 {
+                                    // inside menu: determine which item
+                                    let rel_y = img_y - my0;
+                                    if rel_y < menu_item_h {
+                                        // Toggle pause/resume
+                                        paused = !paused;
+                                        println!("Menu: toggled paused = {}", paused);
+                                    } else {
+                                        // Quit
+                                        println!("Menu: Quit selected");
+                                        *control_flow = ControlFlow::Exit;
+                                    }
+                                    menu_open = false;
+                                } else {
+                                    // clicked outside menu: close it
+                                    menu_open = false;
+                                }
+                            } else if img_x >= 0
                                 && img_y >= 0
                                 && (img_x as u32) < sprite_w
                                 && (img_y as u32) < sprite_h
@@ -217,17 +247,31 @@ fn main() {
                         (MouseButton::Left, ElementState::Released) => {
                             dragging = false;
                         }
+                        (MouseButton::Right, ElementState::Pressed) => {
+                            // open a simple in-window context menu at the clicked pixel
+                            let pos = last_cursor_pos;
+                            let phys = window.inner_size();
+                            let img_x = ((pos.x * (sprite_w as f64)) / (phys.width as f64)).round() as i32;
+                            let img_y = ((pos.y * (sprite_h as f64)) / (phys.height as f64)).round() as i32;
+                            if img_x >= 0 && img_y >= 0 && (img_x as u32) < sprite_w && (img_y as u32) < sprite_h {
+                                menu_open = true;
+                                menu_x = img_x;
+                                menu_y = img_y;
+                            }
+                        }
                         _ => {}
                     }
                 }
                 _ => {}
             },
             Event::MainEventsCleared => {
-                // update animation
-                if last_frame.elapsed() >= frame_duration {
-                    frame_idx = (frame_idx + 1) % frames.len();
-                    last_frame = Instant::now();
-                    window.request_redraw();
+                // update animation (respect pause)
+                if !paused {
+                    if last_frame.elapsed() >= frame_duration {
+                        frame_idx = (frame_idx + 1) % frames.len();
+                        last_frame = Instant::now();
+                        window.request_redraw();
+                    }
                 }
             }
             Event::RedrawRequested(_) => {
@@ -244,6 +288,49 @@ fn main() {
                         frame[i + 1] = p[1];
                         frame[i + 2] = p[2];
                         frame[i + 3] = p[3];
+                    }
+                }
+
+                // draw simple in-window context menu overlay if open
+                if menu_open {
+                    let mx0 = menu_x.max(0) as usize;
+                    let my0 = menu_y.max(0) as usize;
+                    let mx1 = (menu_x + menu_w).min(sprite_w as i32) as usize;
+                    let my1 = (menu_y + menu_item_h * 2).min(sprite_h as i32) as usize;
+                    for y in my0..my1 {
+                        for x in mx0..mx1 {
+                            let i = (y * sprite_w as usize + x) * 4;
+                            // which item row
+                            let rel = (y as i32 - menu_y) as i32;
+                            if rel < menu_item_h {
+                                // first item: pause/resume — dark gray
+                                frame[i] = 0x30;
+                                frame[i + 1] = 0x30;
+                                frame[i + 2] = 0x30;
+                                frame[i + 3] = 230u8;
+                            } else {
+                                // second item: quit — dark red
+                                frame[i] = 0x60;
+                                frame[i + 1] = 0x10;
+                                frame[i + 2] = 0x10;
+                                frame[i + 3] = 230u8;
+                            }
+                        }
+                    }
+                    // simple white border
+                    if mx0 < mx1 && my0 < my1 {
+                        for x in mx0..mx1 {
+                            let i_top = (my0 * sprite_w as usize + x) * 4;
+                            let i_bot = ((my1 - 1) * sprite_w as usize + x) * 4;
+                            frame[i_top] = 0xFF; frame[i_top + 1] = 0xFF; frame[i_top + 2] = 0xFF; frame[i_top + 3] = 255;
+                            frame[i_bot] = 0xFF; frame[i_bot + 1] = 0xFF; frame[i_bot + 2] = 0xFF; frame[i_bot + 3] = 255;
+                        }
+                        for y in my0..my1 {
+                            let i_l = (y * sprite_w as usize + mx0) * 4;
+                            let i_r = (y * sprite_w as usize + (mx1 - 1)) * 4;
+                            frame[i_l] = 0xFF; frame[i_l + 1] = 0xFF; frame[i_l + 2] = 0xFF; frame[i_l + 3] = 255;
+                            frame[i_r] = 0xFF; frame[i_r + 1] = 0xFF; frame[i_r + 2] = 0xFF; frame[i_r + 3] = 255;
+                        }
                     }
                 }
 
