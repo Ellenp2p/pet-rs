@@ -165,10 +165,8 @@ fn main() {
     let frame_duration = Duration::from_millis(100);
     let mut last_frame = Instant::now();
 
-    // drag state
+    // drag state (we use the OS-level drag helper)
     let mut dragging = false;
-    let mut drag_start_cursor: PhysicalPosition<f64> = PhysicalPosition::new(0.0, 0.0);
-    let mut drag_start_window: (i32, i32) = (0, 0);
     let mut last_cursor_pos: PhysicalPosition<f64> = PhysicalPosition::new(0.0, 0.0);
 
     event_loop.run(move |event, _, control_flow| {
@@ -190,43 +188,29 @@ fn main() {
                         }
                     }
                 }
-                WindowEvent::CursorMoved {
-                    position,
-                    ..
-                } => {
+                WindowEvent::CursorMoved { position, .. } => {
+                    // keep track of the last cursor position (physical coordinates)
                     last_cursor_pos = position;
-                    if dragging {
-                        let dx = (position.x - drag_start_cursor.x).round() as i32;
-                        let dy = (position.y - drag_start_cursor.y).round() as i32;
-                        let new_x = drag_start_window.0 + dx;
-                        let new_y = drag_start_window.1 + dy;
-                        window.set_outer_position(winit::dpi::PhysicalPosition::new(new_x, new_y));
-                    }
                 }
-                WindowEvent::MouseInput {
-                    state,
-                    button,
-                    ..
-                } => {
+                WindowEvent::MouseInput { state, button, .. } => {
                     match (button, state) {
                         (MouseButton::Left, ElementState::Pressed) => {
-                            // use last known cursor position (from CursorMoved). Map logical -> physical
+                            // map last known cursor position to image pixel coords
                             let pos = last_cursor_pos;
-                            let scale = window.scale_factor();
-                            let px = (pos.x * scale) as i32;
-                            let py = (pos.y * scale) as i32;
-                            if px >= 0
-                                && py >= 0
-                                && (px as u32) < sprite_w
-                                && (py as u32) < sprite_h
+                            let phys = window.inner_size(); // physical size in pixels
+                            let img_x = ((pos.x * (sprite_w as f64)) / (phys.width as f64)).round() as i32;
+                            let img_y = ((pos.y * (sprite_h as f64)) / (phys.height as f64)).round() as i32;
+                            if img_x >= 0
+                                && img_y >= 0
+                                && (img_x as u32) < sprite_w
+                                && (img_y as u32) < sprite_h
                             {
-                                let pixel = frames[frame_idx].get_pixel(px as u32, py as u32);
+                                let pixel = frames[frame_idx].get_pixel(img_x as u32, img_y as u32);
                                 if pixel.0[3] > 10 {
+                                    // start OS-level dragging — this hands drag control to the OS
+                                    // and gives a much smoother, correct drag behavior.
+                                    let _ = window.drag_window();
                                     dragging = true;
-                                    drag_start_cursor = pos;
-                                    if let Ok(pos) = window.outer_position() {
-                                        drag_start_window = (pos.x, pos.y);
-                                    }
                                 }
                             }
                         }
