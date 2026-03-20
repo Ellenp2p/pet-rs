@@ -1,0 +1,9 @@
+[package]
+name = "pet-rs-bevy-port"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bevy = "0.10"
+pixels = { version = "0.11", optional = true }
+image = { version = "0.24", optional = true }
