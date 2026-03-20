@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use bevy::winit::WinitWindows;
+mod platform_windows;
 use image::RgbaImage;
 
 const SPRITE_W: u32 = 256;
@@ -185,12 +186,12 @@ fn animate_frames(
             // Update native window region for clickable area on Windows using the raw frame
             #[cfg(target_os = "windows")]
             {
-                if let Some(w) = windows.iter().next() {
-                    if let Some(wnd) = winit_windows.get_window(w.id()) {
-                        // call platform-specific region update
-                        crate::bevy_port::platform_windows::set_window_region_from_image(wnd, &frames.raws[frames.idx]);
-                    }
-                }
+                        if let Some(w) = windows.iter().next() {
+                            if let Some(wnd) = winit_windows.get_window(w.id()) {
+                                // call platform-specific region update
+                                platform_windows::set_window_region_from_image(wnd, &frames.raws[frames.idx]);
+                            }
+                        }
             }
         }
     }
