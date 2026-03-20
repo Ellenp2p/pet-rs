@@ -189,6 +189,7 @@ fn right_click_menu_system(
     mouse: Res<Input<MouseButton>>,
     windows: Query<&Window>,
     mut menu: ResMut<MenuState>,
+    font: Res<FontHandle>,
 ) {
     if mouse.just_pressed(MouseButton::Right) {
         // toggle menu: if open, close; else open at cursor
@@ -229,7 +230,7 @@ fn right_click_menu_system(
                             .with_children(|b| {
                                 b.spawn(TextBundle::from_section(
                                     "Pause/Resume",
-                                    TextStyle { font: asset_server.load("fonts/FiraSans-Bold.ttf"), font_size: 16.0, color: Color::WHITE },
+                                    TextStyle { font: font.0.clone(), font_size: 16.0, color: Color::WHITE },
                                 ));
                             });
                         parent
@@ -244,7 +245,7 @@ fn right_click_menu_system(
                             .with_children(|b| {
                                 b.spawn(TextBundle::from_section(
                                     "Quit",
-                                    TextStyle { font: asset_server.load("fonts/FiraSans-Bold.ttf"), font_size: 16.0, color: Color::WHITE },
+                                    TextStyle { font: font.0.clone(), font_size: 16.0, color: Color::WHITE },
                                 ));
                             });
                     })

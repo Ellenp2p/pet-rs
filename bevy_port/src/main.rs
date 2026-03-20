@@ -297,6 +297,7 @@ fn right_click_menu_system(
     mouse: Res<Input<MouseButton>>,
     windows: Query<&Window>,
     mut menu: ResMut<MenuState>,
+    font: Res<FontHandle>,
 ) {
     if mouse.just_pressed(MouseButton::Right) {
         if menu.root.is_some() {
@@ -332,7 +333,7 @@ fn right_click_menu_system(
                             },
                             PauseButton,
                         ))
-                        .with_children(|b| { b.spawn(TextBundle::from_section("Pause/Resume", TextStyle { font: asset_server.load("fonts/FiraSans-Bold.ttf"), font_size: 16.0, color: Color::WHITE })); });
+                        .with_children(|b| { b.spawn(TextBundle::from_section("Pause/Resume", TextStyle { font: font.0.clone(), font_size: 16.0, color: Color::WHITE })); });
                     parent
                         .spawn((
                             ButtonBundle {
@@ -342,7 +343,7 @@ fn right_click_menu_system(
                             },
                             QuitButton,
                         ))
-                        .with_children(|b| { b.spawn(TextBundle::from_section("Quit", TextStyle { font: asset_server.load("fonts/FiraSans-Bold.ttf"), font_size: 16.0, color: Color::WHITE })); });
+                        .with_children(|b| { b.spawn(TextBundle::from_section("Quit", TextStyle { font: font.0.clone(), font_size: 16.0, color: Color::WHITE })); });
                 })
                 .id();
             menu.root = Some(root);
