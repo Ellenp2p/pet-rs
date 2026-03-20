@@ -1,0 +1,18 @@
+# Rust
+/target/
+# Logs
+*.log
+gen.log
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+
+# Generated assets
+assets/spritesheet.png
+
+# Ignore build artifacts from CI or local builds
+/pkg/
+target/
+.idea/
+*.rs.bk
