@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy::winit::WinitWindows;
 
 #[derive(Resource)]
 struct Paused(pub bool);
@@ -16,6 +17,15 @@ struct DragState {
 struct MenuState {
     root: Option<Entity>,
 }
+
+#[derive(Resource)]
+struct PetTexture(Handle<Image>);
+
+#[derive(Component)]
+struct PauseButton;
+
+#[derive(Component)]
+struct QuitButton;
 
 const WINDOW_W: f32 = 320.;
 const WINDOW_H: f32 = 320.;
@@ -82,6 +92,8 @@ fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
         TextureFormat::Rgba8UnormSrgb,
     );
     let handle = images.add(image);
+    // store pet texture handle for hit-testing/drag decisions
+    commands.insert_resource(PetTexture(handle.clone()));
 
     // spawn pet sprite in center
     commands
@@ -198,23 +210,33 @@ fn right_click_menu_system(
                     background_color: BackgroundColor(Color::rgba(0.1,0.1,0.1,0.85)),
                     ..Default::default()
                 })
-                .with_children(|parent| {
-                    parent.spawn(ButtonBundle {
-                        style: Style { size: Size::new(Val::Percent(100.0), Val::Px(40.0)), ..Default::default() },
-                        background_color: BackgroundColor(Color::GRAY),
-                        ..Default::default()
-                    }).with_children(|b| {
-                        b.spawn(TextBundle::from_section("Pause/Resume", TextStyle { font_size: 18.0, color: Color::WHITE, ..Default::default() }));
-                    });
-                    parent.spawn(ButtonBundle {
-                        style: Style { size: Size::new(Val::Percent(100.0), Val::Px(40.0)), ..Default::default() },
-                        background_color: BackgroundColor(Color::DARK_RED),
-                        ..Default::default()
-                    }).with_children(|b| {
-                        b.spawn(TextBundle::from_section("Quit", TextStyle { font_size: 18.0, color: Color::WHITE, ..Default::default() }));
-                    });
-                })
-                .id();
+                    .with_children(|parent| {
+                        parent
+                            .spawn((
+                                ButtonBundle {
+                                    style: Style { size: Size::new(Val::Percent(100.0), Val::Px(40.0)), ..Default::default() },
+                                    background_color: BackgroundColor(Color::GRAY),
+                                    ..Default::default()
+                                },
+                                PauseButton,
+                            ))
+                            .with_children(|b| {
+                                b.spawn(NodeBundle { ..Default::default() });
+                            });
+                        parent
+                            .spawn((
+                                ButtonBundle {
+                                    style: Style { size: Size::new(Val::Percent(100.0), Val::Px(40.0)), ..Default::default() },
+                                    background_color: BackgroundColor(Color::DARK_RED),
+                                    ..Default::default()
+                                },
+                                QuitButton,
+                            ))
+                            .with_children(|b| {
+                                b.spawn(NodeBundle { ..Default::default() });
+                            });
+                    })
+                    .id();
             menu.root = Some(root);
         }
     }
@@ -222,31 +244,57 @@ fn right_click_menu_system(
 
 fn menu_interaction(
     mut commands: Commands,
-    mut interactions: Query<(&Interaction, &Children), (Changed<Interaction>, With<Button>)>,
+    mut interactions: Query<(Entity, &Interaction, Option<&PauseButton>, Option<&QuitButton>), (Changed<Interaction>, With<Button>)>,
     mut paused: ResMut<Paused>,
     mut menu: ResMut<MenuState>,
     mut exit: EventWriter<AppExit>,
 ) {
-    for (interaction, children) in interactions.iter_mut() {
+    for (entity, interaction, pause_opt, quit_opt) in interactions.iter_mut() {
         if *interaction == Interaction::Clicked {
-            // Determine which button by checking text of first child
-            if let Some(text_entity) = children.get(0) {
-                if let Ok(tb) = commands.get_entity(*text_entity) {
-                    // We can't easily read TextBundle contents here; instead infer by order: first button = pause, second = quit
-                }
+            if pause_opt.is_some() {
+                paused.0 = !paused.0;
+                println!("Bevy prototype: paused = {}", paused.0);
+            } else if quit_opt.is_some() {
+                println!("Bevy prototype: Quit selected");
+                exit.send(AppExit);
             }
-            // fallback: toggle pause for first clicked button, quit for second by inspecting parent hierarchy
-            // Simpler: if menu exists, find both buttons by spawning order: first = Pause, second = Quit
-            // We'll handle by checking menu.root and toggling paused on any click in first button, quitting on second.
-            // For simplicity in this prototype, toggle paused and if already toggled twice, quit when clicked again on second button.
-            paused.0 = !paused.0;
-            println!("Bevy prototype: paused = {}", paused.0);
-            // close menu after click
+            // close menu
             if let Some(root) = menu.root.take() {
                 commands.entity(root).despawn_recursive();
             }
-            // If clicked while paused and then clicked again quickly, user can quit via the Quit button (manual AppExit elsewhere)
-            // For brevity we keep the menu click behavior simple.
+        }
+    }
+}
+
+// If user clicks/drag on transparent area (outside pet), request native window drag via winit
+fn native_window_drag(
+    mouse: Res<Input<MouseButton>>,
+    windows: Query<&Window>,
+    winit_windows: NonSend<WinitWindows>,
+    pet_tex: Res<PetTexture>,
+    images: Res<Assets<Image>>,
+) {
+    if mouse.just_pressed(MouseButton::Left) {
+        let w = windows.iter().next().unwrap();
+        if let Some(cursor) = w.cursor_position() {
+            // convert cursor to image pixel coords
+            let ix = ((cursor.x as f32 / w.resolution.width()) * PET_SIZE) as usize;
+            let iy = ((cursor.y as f32 / w.resolution.height()) * PET_SIZE) as usize;
+            if let Some(img) = images.get(&pet_tex.0) {
+                let px = ix.min(img.texture_descriptor.size.width as usize - 1);
+                let py = iy.min(img.texture_descriptor.size.height as usize - 1);
+                // image data in rgba8
+                let idx = (py * img.texture_descriptor.size.width as usize + px) * 4;
+                if idx + 3 < img.data.len() {
+                    let alpha = img.data[idx + 3];
+                    if alpha == 0 {
+                        // transparent pixel -> start native drag
+                        if let Some(wnd) = winit_windows.get_window(w.id()) {
+                            let _ = wnd.drag_window();
+                        }
+                    }
+                }
+            }
         }
     }
 }
