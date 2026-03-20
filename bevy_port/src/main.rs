@@ -164,7 +164,13 @@ fn setup(
         .insert(Pet);
 }
 
-fn animate_frames(time: Res<Time>, mut frames: ResMut<Frames>, mut q: Query<&mut Handle<Image>, With<Pet>>) {
+fn animate_frames(
+    time: Res<Time>,
+    mut frames: ResMut<Frames>,
+    mut q: Query<&mut Handle<Image>, With<Pet>>,
+    windows: Query<&Window>,
+    winit_windows: NonSend<WinitWindows>,
+) {
     // simple timer-based frame advance
     // advance every 0.1s
     const D: f32 = 0.1;
@@ -175,6 +181,16 @@ fn animate_frames(time: Res<Time>, mut frames: ResMut<Frames>, mut q: Query<&mut
             frames.idx = (frames.idx + 1) % frames.handles.len();
             for mut h in q.iter_mut() {
                 *h = frames.handles[frames.idx].clone();
+            }
+            // Update native window region for clickable area on Windows using the raw frame
+            #[cfg(target_os = "windows")]
+            {
+                if let Some(w) = windows.iter().next() {
+                    if let Some(wnd) = winit_windows.get_window(w.id()) {
+                        // call platform-specific region update
+                        crate::bevy_port::platform_windows::set_window_region_from_image(wnd, &frames.raws[frames.idx]);
+                    }
+                }
             }
         }
     }
