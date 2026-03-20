@@ -21,6 +21,9 @@ struct MenuState {
 #[derive(Resource)]
 struct PetTexture(Handle<Image>);
 
+#[derive(Resource)]
+struct FontHandle(Handle<Font>);
+
 #[derive(Component)]
 struct PauseButton;
 
@@ -57,7 +60,7 @@ fn main() {
         .run();
 }
 
-fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
+fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>, asset_server: Res<AssetServer>) {
     commands.spawn(Camera2dBundle::default());
 
     // generate a simple circular RGBA image for the pet
@@ -94,6 +97,9 @@ fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
     let handle = images.add(image);
     // store pet texture handle for hit-testing/drag decisions
     commands.insert_resource(PetTexture(handle.clone()));
+    // load font for menu text (expects assets/fonts/FiraSans-Bold.ttf or bevy default)
+    let font = asset_server.load("fonts/FiraSans-Bold.ttf");
+    commands.insert_resource(FontHandle(font));
 
     // spawn pet sprite in center
     commands
@@ -221,7 +227,10 @@ fn right_click_menu_system(
                                 PauseButton,
                             ))
                             .with_children(|b| {
-                                b.spawn(NodeBundle { ..Default::default() });
+                                b.spawn(TextBundle::from_section(
+                                    "Pause/Resume",
+                                    TextStyle { font: asset_server.load("fonts/FiraSans-Bold.ttf"), font_size: 16.0, color: Color::WHITE },
+                                ));
                             });
                         parent
                             .spawn((
@@ -233,7 +242,10 @@ fn right_click_menu_system(
                                 QuitButton,
                             ))
                             .with_children(|b| {
-                                b.spawn(NodeBundle { ..Default::default() });
+                                b.spawn(TextBundle::from_section(
+                                    "Quit",
+                                    TextStyle { font: asset_server.load("fonts/FiraSans-Bold.ttf"), font_size: 16.0, color: Color::WHITE },
+                                ));
                             });
                     })
                     .id();

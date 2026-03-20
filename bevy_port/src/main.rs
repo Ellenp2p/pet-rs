@@ -37,6 +37,9 @@ struct PauseButton;
 #[derive(Component)]
 struct QuitButton;
 
+#[derive(Resource)]
+struct FontHandle(Handle<Font>);
+
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
@@ -67,6 +70,7 @@ fn main() {
 fn setup(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
+    asset_server: Res<AssetServer>,
 ) {
     commands.spawn(Camera2dBundle::default());
 
@@ -153,6 +157,9 @@ fn setup(
     let frames_res = Frames { handles, raws: frames_rgba, idx: 0 };
     let first = frames_res.handles[0].clone();
     commands.insert_resource(frames_res);
+    // load font for menu UI
+    let font = asset_server.load("fonts/FiraSans-Bold.ttf");
+    commands.insert_resource(FontHandle(font));
 
     // spawn pet sprite
     commands
@@ -325,7 +332,7 @@ fn right_click_menu_system(
                             },
                             PauseButton,
                         ))
-                        .with_children(|b| { b.spawn(TextBundle::from_section("Pause/Resume", TextStyle::default())); });
+                        .with_children(|b| { b.spawn(TextBundle::from_section("Pause/Resume", TextStyle { font: asset_server.load("fonts/FiraSans-Bold.ttf"), font_size: 16.0, color: Color::WHITE })); });
                     parent
                         .spawn((
                             ButtonBundle {
@@ -335,7 +342,7 @@ fn right_click_menu_system(
                             },
                             QuitButton,
                         ))
-                        .with_children(|b| { b.spawn(TextBundle::from_section("Quit", TextStyle::default())); });
+                        .with_children(|b| { b.spawn(TextBundle::from_section("Quit", TextStyle { font: asset_server.load("fonts/FiraSans-Bold.ttf"), font_size: 16.0, color: Color::WHITE })); });
                 })
                 .id();
             menu.root = Some(root);
