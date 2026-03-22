@@ -1,0 +1,44 @@
+[package]
+name = "pet-rs"
+version = "0.1.0"
+edition = "2021"
+description = "Production-ready virtual pet framework with Bevy ECS"
+
+[dependencies]
+bevy = { version = "0.14" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros"] }
+reqwest = { version = "0.12", features = ["json"] }
+tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+futures-util = "0.3"
+log = "0.4"
+tracing = "0.1"
+thiserror = "1"
+
+[dependencies.uuid]
+version = "1"
+features = ["v4", "serde"]
+
+[dependencies.wasmtime]
+version = "24"
+optional = true
+features = ["component-model"]
+
+[features]
+default = []
+wasm-plugin = ["wasmtime"]
+
+[dev-dependencies]
+
+[[example]]
+name = "basic_pet"
+path = "examples/basic_pet.rs"
+
+[[test]]
+name = "pet_tests"
+path = "tests/pet_tests.rs"
+
+[lib]
+name = "pet_rs"
+path = "src/lib.rs"
