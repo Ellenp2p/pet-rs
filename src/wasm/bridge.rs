@@ -2,8 +2,9 @@ use bevy::prelude::*;
 
 #[cfg(feature = "wasm-plugin")]
 use {
-    super::{wasmtime_loader::WasmtimePlugin, WasmPlugin},
+    super::{wasmtime_loader::WasmtimePlugin, WasmPlugin, WasmPluginId},
     crate::error::FrameworkError,
+    std::collections::HashMap,
     std::sync::{Arc, Mutex},
 };
 
@@ -14,6 +15,8 @@ use {
 pub struct WasmPluginHost {
     #[cfg(feature = "wasm-plugin")]
     plugins: Arc<Mutex<Vec<Box<dyn WasmPlugin>>>>,
+    #[cfg(feature = "wasm-plugin")]
+    plugin_states: Arc<Mutex<HashMap<WasmPluginId, Vec<u8>>>>,
 }
 
 impl WasmPluginHost {
@@ -53,6 +56,14 @@ impl WasmPluginHost {
         } else {
             info!("WASM plugin '{}' loaded", new_id);
             plugins.push(Box::new(new_plugin));
+            // Initialize empty state for new plugin
+            let mut states = self
+                .plugin_states
+                .lock()
+                .map_err(|_| FrameworkError::LockPoisoned)?;
+            states
+                .entry(WasmPluginId::new(new_id.clone()))
+                .or_insert_with(Vec::new);
         }
 
         Ok(())
@@ -143,6 +154,16 @@ impl WasmPluginHost {
 
         for plugin in plugins.iter() {
             plugin.on_event(super::WasmEntityId(entity_id), event, data);
+
+            // Sync plugin state to host after event processing
+            if let Some(state) = plugin.get_state() {
+                let plugin_id = plugin.id().clone();
+                let mut states = self
+                    .plugin_states
+                    .lock()
+                    .map_err(|_| FrameworkError::LockPoisoned)?;
+                states.insert(plugin_id, state);
+            }
         }
         Ok(())
     }
@@ -154,6 +175,57 @@ impl WasmPluginHost {
         _event: &str,
         _data: &str,
     ) -> Result<(), FrameworkError> {
+        Ok(())
+    }
+
+    /// Get plugin state by ID.
+    #[cfg(feature = "wasm-plugin")]
+    pub fn get_plugin_state(&self, plugin_id: &str) -> Result<Option<Vec<u8>>, FrameworkError> {
+        let states = self
+            .plugin_states
+            .lock()
+            .map_err(|_| FrameworkError::LockPoisoned)?;
+        Ok(states.get(&WasmPluginId::new(plugin_id)).cloned())
+    }
+
+    #[cfg(not(feature = "wasm-plugin"))]
+    pub fn get_plugin_state(&self, _plugin_id: &str) -> Result<Option<Vec<u8>>, FrameworkError> {
+        Ok(None)
+    }
+
+    /// Set plugin state by ID.
+    #[cfg(feature = "wasm-plugin")]
+    pub fn set_plugin_state(&self, plugin_id: &str, state: Vec<u8>) -> Result<(), FrameworkError> {
+        let mut states = self
+            .plugin_states
+            .lock()
+            .map_err(|_| FrameworkError::LockPoisoned)?;
+        states.insert(WasmPluginId::new(plugin_id), state);
+        Ok(())
+    }
+
+    #[cfg(not(feature = "wasm-plugin"))]
+    pub fn set_plugin_state(
+        &self,
+        _plugin_id: &str,
+        _state: Vec<u8>,
+    ) -> Result<(), FrameworkError> {
+        Ok(())
+    }
+
+    /// Remove plugin state by ID.
+    #[cfg(feature = "wasm-plugin")]
+    pub fn remove_plugin_state(&self, plugin_id: &str) -> Result<(), FrameworkError> {
+        let mut states = self
+            .plugin_states
+            .lock()
+            .map_err(|_| FrameworkError::LockPoisoned)?;
+        states.remove(&WasmPluginId::new(plugin_id));
+        Ok(())
+    }
+
+    #[cfg(not(feature = "wasm-plugin"))]
+    pub fn remove_plugin_state(&self, _plugin_id: &str) -> Result<(), FrameworkError> {
         Ok(())
     }
 }

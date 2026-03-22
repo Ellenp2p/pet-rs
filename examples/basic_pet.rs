@@ -436,20 +436,37 @@ fn setup_ui(
     #[cfg(feature = "wasm-plugin")]
     {
         use std::path::Path;
-        let wasm_path =
+
+        // Load demo plugin
+        let demo_path =
             Path::new("examples/wasm_hooks/target/wasm32-unknown-unknown/release/wasm_hooks.wasm");
-        if wasm_path.exists() {
-            match _wasm_host.register_wasm(wasm_path, Some("demo_plugin".into())) {
+        if demo_path.exists() {
+            match _wasm_host.register_wasm(demo_path, Some("demo_plugin".into())) {
                 Ok(()) => {
-                    info!("WASM plugin loaded successfully");
-                    let count = _wasm_host.plugin_count().unwrap_or(0);
-                    info!("Total WASM plugins: {}", count);
+                    info!("Demo WASM plugin loaded successfully");
                 }
-                Err(e) => error!("Failed to load WASM plugin: {}", e),
+                Err(e) => error!("Failed to load demo WASM plugin: {}", e),
             }
         } else {
-            warn!("WASM plugin file not found at {:?}", wasm_path);
+            warn!("Demo WASM plugin file not found at {:?}", demo_path);
         }
+
+        // Load stats plugin
+        let stats_path =
+            Path::new("examples/wasm_stats/target/wasm32-unknown-unknown/release/wasm_stats.wasm");
+        if stats_path.exists() {
+            match _wasm_host.register_wasm(stats_path, Some("stats_plugin".into())) {
+                Ok(()) => {
+                    info!("Stats WASM plugin loaded successfully");
+                }
+                Err(e) => error!("Failed to load stats WASM plugin: {}", e),
+            }
+        } else {
+            warn!("Stats WASM plugin file not found at {:?}", stats_path);
+        }
+
+        let count = _wasm_host.plugin_count().unwrap_or(0);
+        info!("Total WASM plugins: {}", count);
     }
 
     commands.spawn(
@@ -521,6 +538,26 @@ fn update_ui(
             #[cfg(not(feature = "wasm-plugin"))]
             let plugin_count = 0;
 
+            // Get stats from stats plugin
+            #[cfg(feature = "wasm-plugin")]
+            let stats_text = {
+                if let Ok(Some(state)) = _wasm_host.get_plugin_state("stats_plugin") {
+                    // Try to parse stats from state
+                    if state.len() >= 12 {
+                        let purchase = u32::from_le_bytes(state[0..4].try_into().unwrap_or([0; 4]));
+                        let heal = u32::from_le_bytes(state[4..8].try_into().unwrap_or([0; 4]));
+                        let gold = u32::from_le_bytes(state[8..12].try_into().unwrap_or([0; 4]));
+                        format!("  Stats: P:{} H:{} G:{}", purchase, heal, gold)
+                    } else {
+                        "  Stats: N/A".to_string()
+                    }
+                } else {
+                    "  Stats: N/A".to_string()
+                }
+            };
+            #[cfg(not(feature = "wasm-plugin"))]
+            let stats_text = "  Stats: N/A".to_string();
+
             let lines = vec![
                 "===========================".into(),
                 String::new(),
@@ -534,6 +571,7 @@ fn update_ui(
                 format!("  Mood:   {:?}", mood),
                 format!("  Gold:   {}", wallet.gold),
                 format!("  WASM Plugins: {}", plugin_count),
+                stats_text,
                 String::new(),
                 "  [F] Buy Food (-10g)".into(),
                 "  [H] Heal".into(),

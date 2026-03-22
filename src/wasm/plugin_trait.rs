@@ -24,4 +24,19 @@ pub trait WasmPlugin: Send + Sync {
     fn name(&self) -> &str;
     fn on_tick(&self, entity_id: WasmEntityId);
     fn on_event(&self, entity_id: WasmEntityId, event: &str, data: &str);
+
+    // State management interface
+    fn get_state(&self) -> Option<Vec<u8>>;
+    fn set_state(&self, state: Vec<u8>);
+
+    // Read statistics from WASM memory
+    fn get_stats(&self) -> Option<PluginStats>;
+}
+
+/// Plugin statistics structure
+#[derive(Debug, Clone, Copy)]
+pub struct PluginStats {
+    pub purchase_count: u32,
+    pub heal_count: u32,
+    pub gold_earned: u32,
 }

@@ -28,6 +28,7 @@ pub struct WasmtimePlugin {
     name: String,
     wasm_bytes: Vec<u8>,
     engine: Engine,
+    state: std::sync::RwLock<Vec<u8>>,
 }
 
 #[cfg(feature = "wasm-plugin")]
@@ -70,6 +71,7 @@ impl WasmtimePlugin {
             name,
             wasm_bytes,
             engine,
+            state: std::sync::RwLock::new(Vec::new()),
         })
     }
 
@@ -251,5 +253,71 @@ impl WasmPlugin for WasmtimePlugin {
                 log::error!("WASM on_event failed: {}", e);
             }
         }
+    }
+
+    fn get_state(&self) -> Option<Vec<u8>> {
+        let state = self.state.read().ok()?;
+        if state.is_empty() {
+            None
+        } else {
+            Some(state.clone())
+        }
+    }
+
+    fn set_state(&self, state: Vec<u8>) {
+        if let Ok(mut guard) = self.state.write() {
+            *guard = state;
+        }
+    }
+
+    fn get_stats(&self) -> Option<crate::wasm::PluginStats> {
+        // 创建临时实例来读取统计数据
+        let result = Self::create_instance_with_name(&self.engine, &self.wasm_bytes);
+        match result {
+            Ok((_name, instance, mut store, memory, _on_tick, _on_event)) => {
+                // 尝试调用 wasm_plugin_get_stats 和 wasm_plugin_get_stats_len
+                if let Ok(get_stats_func) =
+                    instance.get_typed_func::<(), u32>(&mut store, "wasm_plugin_get_stats")
+                {
+                    if let Ok(get_stats_len_func) =
+                        instance.get_typed_func::<(), u32>(&mut store, "wasm_plugin_get_stats_len")
+                    {
+                        if let Ok(stats_ptr) = get_stats_func.call(&mut store, ()) {
+                            if let Ok(stats_len) = get_stats_len_func.call(&mut store, ()) {
+                                if stats_len >= 12 {
+                                    // 从内存读取统计数据
+                                    let mem_data = memory.data(&store);
+                                    let start = stats_ptr as usize;
+                                    let end = start + stats_len as usize;
+
+                                    if end <= mem_data.len() {
+                                        let stats_bytes = &mem_data[start..end];
+                                        if let Ok(purchase_bytes) = stats_bytes[0..4].try_into() {
+                                            if let Ok(heal_bytes) = stats_bytes[4..8].try_into() {
+                                                if let Ok(gold_bytes) =
+                                                    stats_bytes[8..12].try_into()
+                                                {
+                                                    return Some(crate::wasm::PluginStats {
+                                                        purchase_count: u32::from_le_bytes(
+                                                            purchase_bytes,
+                                                        ),
+                                                        heal_count: u32::from_le_bytes(heal_bytes),
+                                                        gold_earned: u32::from_le_bytes(gold_bytes),
+                                                    });
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                log::error!("Failed to create instance for stats reading: {}", e);
+            }
+        }
+        None
     }
 }
