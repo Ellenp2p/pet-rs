@@ -4,6 +4,43 @@ use bevy::prelude::*;
 use pet_rs::prelude::*;
 use std::collections::HashMap;
 
+#[cfg(not(feature = "wasm-plugin"))]
+mod wasm_stub {
+    use bevy::prelude::Resource;
+    use pet_rs::error::FrameworkError;
+    #[derive(Default, Resource)]
+    pub struct WasmPluginHost;
+    #[allow(dead_code)]
+    impl WasmPluginHost {
+        pub fn register_wasm(
+            &self,
+            _path: &std::path::Path,
+            _plugin_id: Option<String>,
+        ) -> Result<(), FrameworkError> {
+            Ok(())
+        }
+        pub fn unregister_wasm(&self, _plugin_id: &str) -> Result<(), FrameworkError> {
+            Ok(())
+        }
+        pub fn plugin_count(&self) -> Result<usize, FrameworkError> {
+            Ok(0)
+        }
+        pub fn trigger_on_tick(&self, _entity_id: u64) -> Result<(), FrameworkError> {
+            Ok(())
+        }
+        pub fn trigger_on_event(
+            &self,
+            _entity_id: u64,
+            _event: &str,
+            _data: &str,
+        ) -> Result<(), FrameworkError> {
+            Ok(())
+        }
+    }
+}
+#[cfg(not(feature = "wasm-plugin"))]
+use wasm_stub::WasmPluginHost;
+
 // ============================================================
 // Components
 // ============================================================
@@ -153,7 +190,7 @@ struct PurchaseEvent {
 }
 
 // ============================================================
-// Hook keys (framework uses Cow<str>)
+// Hook keys
 // ============================================================
 
 const ON_SPAWN: &str = "pet.on_spawn";
@@ -162,7 +199,7 @@ const ON_PURCHASE: &str = "pet.on_purchase";
 const ON_REWARD: &str = "pet.on_reward";
 
 // ============================================================
-// System Sets (extend FrameworkSet)
+// System Sets
 // ============================================================
 
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
@@ -339,7 +376,8 @@ fn hunger_decay_system(time: Res<Time>, mut pet_query: Query<&mut Hunger, With<P
 fn health_from_hunger_system(
     mut pet_query: Query<(&Hunger, &mut Health), (With<Pet>, Changed<Hunger>)>,
 ) {
-    for (hunger, mut health) in pet_query.iter_mut() {
+    for (hunger, health) in pet_query.iter_mut() {
+        let mut health = health;
         if hunger.value <= 0.0 {
             health.value -= 2.0 * hunger.decay_rate;
             health.clamp();
@@ -353,7 +391,10 @@ fn health_from_hunger_system(
 fn derive_state_system(
     mut pet_query: Query<(&Hunger, &Health, &mut PetState, &mut Mood), With<Pet>>,
 ) {
-    for (hunger, health, mut state, mut mood) in pet_query.iter_mut() {
+    for (hunger, health, state, mood) in pet_query.iter_mut() {
+        let mut state = state;
+        let mut mood = mood;
+
         let new_state = if health.value <= 0.0 {
             PetState::Dead
         } else if health.ratio() < 0.25 {
@@ -380,12 +421,36 @@ fn derive_state_system(
 // UI
 // ============================================================
 
-fn setup_ui(mut commands: Commands, mut spawn_events: EventWriter<SpawnPetEvent>) {
+fn setup_ui(
+    mut commands: Commands,
+    mut spawn_events: EventWriter<SpawnPetEvent>,
+    _wasm_host: Res<WasmPluginHost>,
+) {
     commands.spawn(Camera2dBundle::default());
 
     spawn_events.send(SpawnPetEvent {
         name: "Buddy".into(),
     });
+
+    // Load WASM plugin if feature enabled
+    #[cfg(feature = "wasm-plugin")]
+    {
+        use std::path::Path;
+        let wasm_path =
+            Path::new("examples/wasm_hooks/target/wasm32-unknown-unknown/release/wasm_hooks.wasm");
+        if wasm_path.exists() {
+            match _wasm_host.register_wasm(wasm_path, Some("demo_plugin".into())) {
+                Ok(()) => {
+                    info!("WASM plugin loaded successfully");
+                    let count = _wasm_host.plugin_count().unwrap_or(0);
+                    info!("Total WASM plugins: {}", count);
+                }
+                Err(e) => error!("Failed to load WASM plugin: {}", e),
+            }
+        } else {
+            warn!("WASM plugin file not found at {:?}", wasm_path);
+        }
+    }
 
     commands.spawn(
         TextBundle::from_section(
@@ -411,6 +476,7 @@ fn keyboard_input(
     mut purchase_events: EventWriter<PurchaseEvent>,
     mut heal_events: EventWriter<HealEvent>,
     mut gain_events: EventWriter<GainEvent>,
+    _wasm_host: Res<WasmPluginHost>,
 ) {
     for entity in pet_query.iter() {
         if keys.just_pressed(KeyCode::KeyF) {
@@ -419,12 +485,17 @@ fn keyboard_input(
                 item: "food".into(),
                 cost: 10,
             });
+            // Trigger WASM on_event
+            #[cfg(feature = "wasm-plugin")]
+            let _ = _wasm_host.trigger_on_event(entity.index() as u64, "purchase", "food");
         }
         if keys.just_pressed(KeyCode::KeyH) {
             heal_events.send(HealEvent {
                 entity,
                 amount: 15.0,
             });
+            #[cfg(feature = "wasm-plugin")]
+            let _ = _wasm_host.trigger_on_event(entity.index() as u64, "heal", "15");
         }
         if keys.just_pressed(KeyCode::KeyG) {
             gain_events.send(GainEvent {
@@ -432,6 +503,8 @@ fn keyboard_input(
                 currency: "gold".into(),
                 amount: 50,
             });
+            #[cfg(feature = "wasm-plugin")]
+            let _ = _wasm_host.trigger_on_event(entity.index() as u64, "gain_gold", "50");
         }
     }
 }
@@ -439,9 +512,15 @@ fn keyboard_input(
 fn update_ui(
     pet_query: Query<(&PetName, &Hunger, &Health, &PetState, &Mood, &Wallet), With<Pet>>,
     mut text_query: Query<&mut Text>,
+    _wasm_host: Res<WasmPluginHost>,
 ) {
     for (name, hunger, health, state, mood, wallet) in pet_query.iter() {
         for mut text in text_query.iter_mut() {
+            #[cfg(feature = "wasm-plugin")]
+            let plugin_count = _wasm_host.plugin_count().unwrap_or(0);
+            #[cfg(not(feature = "wasm-plugin"))]
+            let plugin_count = 0;
+
             let lines = vec![
                 "===========================".into(),
                 String::new(),
@@ -454,6 +533,7 @@ fn update_ui(
                 format!("  State:  {:?}", state),
                 format!("  Mood:   {:?}", mood),
                 format!("  Gold:   {}", wallet.gold),
+                format!("  WASM Plugins: {}", plugin_count),
                 String::new(),
                 "  [F] Buy Food (-10g)".into(),
                 "  [H] Heal".into(),
@@ -475,6 +555,7 @@ fn main() {
         .add_plugins(DefaultPlugins)
         .add_plugins(FrameworkPlugin)
         .add_plugins(PetPlugin)
+        .insert_resource(WasmPluginHost::default())
         .add_systems(Startup, setup_ui)
         .add_systems(Update, (keyboard_input, update_ui))
         .run();

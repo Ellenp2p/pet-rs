@@ -12,4 +12,12 @@ pub enum FrameworkError {
     /// An error occurred within a WASM plugin.
     #[error("plugin error: {0}")]
     Plugin(String),
+
+    /// Failed to load WASM plugin.
+    #[error("WASM load error: {0}")]
+    WasmLoad(String),
+
+    /// Failed to unload WASM plugin.
+    #[error("WASM unload error: {0}")]
+    WasmUnload(String),
 }
