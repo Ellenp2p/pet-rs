@@ -5,6 +5,7 @@ pub mod dependency;
 pub mod error;
 pub mod hooks;
 pub mod network;
+pub mod permission;
 pub mod plugins;
 
 pub mod components;

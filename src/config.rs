@@ -93,6 +93,17 @@ pub struct PluginDependency {
     pub version_req: String,
 }
 
+/// Plugin permission specification.
+#[derive(Debug, Clone)]
+pub struct PluginPermissionConfig {
+    /// Permission type (e.g., "read_data", "write_data", "read_config", "write_config", "access_plugin", "full_access")
+    pub permission_type: String,
+    /// Resource pattern (e.g., "*", "specific_key", "plugin_id")
+    pub resource: String,
+    /// Whether the permission is denied
+    pub denied: bool,
+}
+
 /// Plugin configuration.
 #[derive(Debug, Clone)]
 pub struct PluginConfig {
@@ -102,6 +113,8 @@ pub struct PluginConfig {
     pub values: HashMap<String, ConfigValue>,
     /// Plugin dependencies
     pub dependencies: Vec<PluginDependency>,
+    /// Plugin permissions
+    pub permissions: Vec<PluginPermissionConfig>,
 }
 
 impl PluginConfig {
@@ -111,6 +124,7 @@ impl PluginConfig {
             plugin_id,
             values: HashMap::new(),
             dependencies: Vec::new(),
+            permissions: Vec::new(),
         }
     }
 
@@ -119,6 +133,15 @@ impl PluginConfig {
         self.dependencies.push(PluginDependency {
             plugin_id,
             version_req,
+        });
+    }
+
+    /// Add a permission to this plugin.
+    pub fn add_permission(&mut self, permission_type: String, resource: String, denied: bool) {
+        self.permissions.push(PluginPermissionConfig {
+            permission_type,
+            resource,
+            denied,
         });
     }
 }
@@ -193,6 +216,31 @@ impl PluginConfigManager {
                                     config.add_dependency(
                                         dep_id.to_string(),
                                         version_req.to_string(),
+                                    );
+                                }
+                            }
+                        }
+                    }
+                } else if key == "permissions" {
+                    // Parse permissions array
+                    if let Some(perms_array) = val.as_array() {
+                        for perm in perms_array {
+                            if let Some(perm_obj) = perm.as_object() {
+                                let perm_type =
+                                    perm_obj.get("type").and_then(|v| v.as_str()).unwrap_or("");
+                                let resource = perm_obj
+                                    .get("resource")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("*");
+                                let denied = perm_obj
+                                    .get("denied")
+                                    .and_then(|v| v.as_bool())
+                                    .unwrap_or(false);
+                                if !perm_type.is_empty() {
+                                    config.add_permission(
+                                        perm_type.to_string(),
+                                        resource.to_string(),
+                                        denied,
                                     );
                                 }
                             }
@@ -346,6 +394,37 @@ impl PluginConfigManager {
             Ok(false)
         }
     }
+
+    /// Get permissions for a plugin.
+    pub fn get_permissions(
+        &self,
+        plugin_id: &str,
+    ) -> Result<Vec<PluginPermissionConfig>, FrameworkError> {
+        let configs = self
+            .configs
+            .lock()
+            .map_err(|_| FrameworkError::LockPoisoned)?;
+
+        if let Some(plugin_config) = configs.get(plugin_id) {
+            Ok(plugin_config.permissions.clone())
+        } else {
+            Ok(Vec::new())
+        }
+    }
+
+    /// Check if a plugin has any permissions configured.
+    pub fn has_permissions(&self, plugin_id: &str) -> Result<bool, FrameworkError> {
+        let configs = self
+            .configs
+            .lock()
+            .map_err(|_| FrameworkError::LockPoisoned)?;
+
+        if let Some(plugin_config) = configs.get(plugin_id) {
+            Ok(!plugin_config.permissions.is_empty())
+        } else {
+            Ok(false)
+        }
+    }
 }
 
 /// Stub implementation for non-wasm-plugin feature.
@@ -406,6 +485,19 @@ impl PluginConfigManager {
 
     /// Check if a plugin has any dependencies (stub).
     pub fn has_dependencies(&self, _plugin_id: &str) -> Result<bool, crate::error::FrameworkError> {
+        Ok(false)
+    }
+
+    /// Get permissions for a plugin (stub).
+    pub fn get_permissions(
+        &self,
+        _plugin_id: &str,
+    ) -> Result<Vec<PluginPermissionConfig>, crate::error::FrameworkError> {
+        Ok(Vec::new())
+    }
+
+    /// Check if a plugin has any permissions configured (stub).
+    pub fn has_permissions(&self, _plugin_id: &str) -> Result<bool, crate::error::FrameworkError> {
         Ok(false)
     }
 }

@@ -6,6 +6,7 @@ use {
     crate::config::PluginConfigManager,
     crate::dependency::DependencyManager,
     crate::error::FrameworkError,
+    crate::permission::{Permission, PermissionManager, PluginPermissions},
     std::collections::HashMap,
     std::collections::HashSet,
     std::sync::{Arc, Mutex},
@@ -28,6 +29,8 @@ pub struct WasmPluginHost {
     dependency_manager: Arc<Mutex<DependencyManager>>,
     #[cfg(feature = "wasm-plugin")]
     plugin_paths: Arc<Mutex<HashMap<String, std::path::PathBuf>>>,
+    #[cfg(feature = "wasm-plugin")]
+    permission_manager: Arc<Mutex<PermissionManager>>,
 }
 
 impl WasmPluginHost {
@@ -51,12 +54,24 @@ impl WasmPluginHost {
         path: &std::path::Path,
         plugin_id: Option<String>,
     ) -> Result<(), FrameworkError> {
-        // Create callbacks for inter-plugin communication
+        // Create callbacks for inter-plugin communication with permission checking
         let plugin_data_clone = self.plugin_data.clone();
+        let permission_manager_clone = self.permission_manager.clone();
         let read_data_fn: Arc<dyn Fn(&str, &str) -> Option<Vec<u8>> + Send + Sync> =
-            Arc::new(move |_plugin_id: &str, key: &str| {
-                // For now, we read from the current plugin's data
-                // In a full implementation, we'd need to pass the target plugin ID
+            Arc::new(move |plugin_id: &str, key: &str| {
+                // Check permissions
+                if let Ok(pm) = permission_manager_clone.lock() {
+                    if !pm.can_read_data(plugin_id, key) {
+                        log::warn!(
+                            "Plugin '{}' denied read access to data key '{}'",
+                            plugin_id,
+                            key
+                        );
+                        return None;
+                    }
+                }
+
+                // Read from the current plugin's data
                 let data = plugin_data_clone.lock().ok()?;
                 // Try to find any plugin that has this key
                 for (_, plugin_data) in data.iter() {
@@ -68,12 +83,23 @@ impl WasmPluginHost {
             });
 
         let plugin_data_clone2 = self.plugin_data.clone();
+        let permission_manager_clone2 = self.permission_manager.clone();
         let write_data_fn: Arc<dyn Fn(&str, &str, Vec<u8>) + Send + Sync> =
-            Arc::new(move |_plugin_id: &str, key: &str, value: Vec<u8>| {
-                // For now, we write to all plugins' data
-                // In a full implementation, we'd need to pass the target plugin ID
+            Arc::new(move |plugin_id: &str, key: &str, value: Vec<u8>| {
+                // Check permissions
+                if let Ok(pm) = permission_manager_clone2.lock() {
+                    if !pm.can_write_data(plugin_id, key) {
+                        log::warn!(
+                            "Plugin '{}' denied write access to data key '{}'",
+                            plugin_id,
+                            key
+                        );
+                        return;
+                    }
+                }
+
+                // Write to all plugins' data (simplified approach)
                 if let Ok(mut data) = plugin_data_clone2.lock() {
-                    // Write to all plugins (simplified approach)
                     for (_, plugin_data) in data.iter_mut() {
                         plugin_data.insert(key.to_string(), value.clone());
                     }
@@ -103,6 +129,43 @@ impl WasmPluginHost {
             read_config_fn,
         )?;
         let new_id = new_plugin.id().as_str().to_string();
+
+        // Load permissions from config
+        if let Some(config_manager) = &self.config_manager {
+            if let Ok(manager) = config_manager.lock() {
+                if let Ok(perm_configs) = manager.get_permissions(&new_id) {
+                    let mut perms = PluginPermissions::new(new_id.clone());
+                    for perm_config in perm_configs {
+                        let permission = match perm_config.permission_type.as_str() {
+                            "read_data" => Permission::ReadData(perm_config.resource.clone()),
+                            "write_data" => Permission::WriteData(perm_config.resource.clone()),
+                            "read_config" => Permission::ReadConfig(perm_config.resource.clone()),
+                            "write_config" => Permission::WriteConfig(perm_config.resource.clone()),
+                            "access_plugin" => {
+                                Permission::AccessPlugin(perm_config.resource.clone())
+                            }
+                            "full_access" => Permission::FullAccess,
+                            _ => {
+                                log::warn!(
+                                    "Unknown permission type: {}",
+                                    perm_config.permission_type
+                                );
+                                continue;
+                            }
+                        };
+                        if perm_config.denied {
+                            perms.deny(permission);
+                        } else {
+                            perms.grant(permission);
+                        }
+                    }
+                    if let Ok(mut pm) = self.permission_manager.lock() {
+                        pm.set_permissions(perms);
+                        info!("Loaded permissions for plugin '{}'", new_id);
+                    }
+                }
+            }
+        }
 
         let mut plugins = self
             .plugins

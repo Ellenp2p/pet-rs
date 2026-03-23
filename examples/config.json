@@ -3,7 +3,14 @@
     "enabled": true,
     "log_level": "info",
     "max_events_per_second": 100,
-    "dependencies": []
+    "dependencies": [],
+    "permissions": [
+      {
+        "type": "full_access",
+        "resource": "*",
+        "denied": false
+      }
+    ]
   },
   "stats_plugin": {
     "enabled": true,
@@ -16,6 +23,23 @@
         "plugin_id": "demo_plugin",
         "version_req": ">=1.0.0"
       }
+    ],
+    "permissions": [
+      {
+        "type": "read_data",
+        "resource": "*",
+        "denied": false
+      },
+      {
+        "type": "write_data",
+        "resource": "*",
+        "denied": false
+      },
+      {
+        "type": "read_config",
+        "resource": "track_*",
+        "denied": false
+      }
     ]
   },
   "reader_plugin": {
@@ -27,6 +51,33 @@
       {
         "plugin_id": "stats_plugin",
         "version_req": ">=1.0.0"
+      }
+    ],
+    "permissions": [
+      {
+        "type": "read_data",
+        "resource": "purchase_count",
+        "denied": false
+      },
+      {
+        "type": "read_data",
+        "resource": "heal_count",
+        "denied": false
+      },
+      {
+        "type": "read_data",
+        "resource": "gold_earned",
+        "denied": false
+      },
+      {
+        "type": "write_data",
+        "resource": "*",
+        "denied": true
+      },
+      {
+        "type": "access_plugin",
+        "resource": "stats_plugin",
+        "denied": false
       }
     ]
   }
