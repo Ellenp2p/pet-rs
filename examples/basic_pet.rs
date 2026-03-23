@@ -628,12 +628,41 @@ fn update_ui(
 
 fn main() {
     configure_backend(None);
-    App::new()
-        .add_plugins(DefaultPlugins)
+
+    // Create and configure the app
+    let mut app = App::new();
+    app.add_plugins(DefaultPlugins)
         .add_plugins(FrameworkPlugin)
-        .add_plugins(PetPlugin)
-        .insert_resource(WasmPluginHost::default())
-        .add_systems(Startup, setup_ui)
+        .add_plugins(PetPlugin);
+
+    // Initialize WasmPluginHost with config manager
+    #[cfg(feature = "wasm-plugin")]
+    {
+        let mut wasm_host = WasmPluginHost::default();
+
+        // Load configuration file
+        let config_path = std::path::Path::new("examples/config.json");
+        if config_path.exists() {
+            let config_manager = pet_rs::config::PluginConfigManager::default();
+            if let Err(e) = config_manager.load_from_file(config_path) {
+                log::error!("Failed to load config file: {}", e);
+            } else {
+                wasm_host.set_config_manager(config_manager);
+                log::info!("Configuration loaded from {:?}", config_path);
+            }
+        } else {
+            log::warn!("Config file not found at {:?}", config_path);
+        }
+
+        app.insert_resource(wasm_host);
+    }
+
+    #[cfg(not(feature = "wasm-plugin"))]
+    {
+        app.insert_resource(WasmPluginHost::default());
+    }
+
+    app.add_systems(Startup, setup_ui)
         .add_systems(Update, (keyboard_input, update_ui))
         .run();
 }

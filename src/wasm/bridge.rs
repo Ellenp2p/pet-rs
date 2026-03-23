@@ -3,6 +3,7 @@ use bevy::prelude::*;
 #[cfg(feature = "wasm-plugin")]
 use {
     super::{wasmtime_loader::WasmtimePlugin, WasmPlugin, WasmPluginId},
+    crate::config::PluginConfigManager,
     crate::error::FrameworkError,
     std::collections::HashMap,
     std::sync::{Arc, Mutex},
@@ -19,6 +20,8 @@ pub struct WasmPluginHost {
     plugin_states: Arc<Mutex<HashMap<WasmPluginId, Vec<u8>>>>,
     #[cfg(feature = "wasm-plugin")]
     plugin_data: Arc<Mutex<HashMap<WasmPluginId, HashMap<String, Vec<u8>>>>>,
+    #[cfg(feature = "wasm-plugin")]
+    config_manager: Option<Arc<Mutex<PluginConfigManager>>>,
 }
 
 impl WasmPluginHost {
@@ -71,12 +74,27 @@ impl WasmPluginHost {
                 }
             });
 
+        // Create config read callback
+        let config_manager_clone = self.config_manager.clone();
+        let read_config_fn: Arc<dyn Fn(&str, &str) -> Option<String> + Send + Sync> =
+            Arc::new(move |plugin_id: &str, key: &str| {
+                if let Some(config_manager) = &config_manager_clone {
+                    if let Ok(manager) = config_manager.lock() {
+                        if let Ok(Some(value)) = manager.get_config(plugin_id, key) {
+                            return Some(format!("{:?}", value));
+                        }
+                    }
+                }
+                None
+            });
+
         // Load the new plugin with callbacks
         let new_plugin = WasmtimePlugin::load_with_callbacks(
             path,
             plugin_id.clone(),
             read_data_fn,
             write_data_fn,
+            read_config_fn,
         )?;
         let new_id = new_plugin.id().as_str().to_string();
 
@@ -135,6 +153,17 @@ impl WasmPluginHost {
         _plugin_id: Option<String>,
     ) -> Result<(), FrameworkError> {
         Ok(())
+    }
+
+    /// Set the configuration manager for plugins.
+    #[cfg(feature = "wasm-plugin")]
+    pub fn set_config_manager(&mut self, config_manager: PluginConfigManager) {
+        self.config_manager = Some(Arc::new(Mutex::new(config_manager)));
+    }
+
+    #[cfg(not(feature = "wasm-plugin"))]
+    pub fn set_config_manager(&mut self, _config_manager: crate::config::PluginConfigManager) {
+        // Stub implementation
     }
 
     /// Unregister a WASM plugin by ID.

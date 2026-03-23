@@ -1,5 +1,6 @@
 #![allow(clippy::type_complexity)]
 
+pub mod config;
 pub mod error;
 pub mod hooks;
 pub mod network;
@@ -48,13 +49,14 @@ pub fn configure_backend(backend: Option<&str>) {
 
 /// The core framework plugin.
 ///
-/// Registers `HookRegistry`, `NetworkConfig`, and `FrameworkSet` ordering.
+/// Registers `HookRegistry`, `NetworkConfig`, `PluginConfigManager`, and `FrameworkSet` ordering.
 pub struct FrameworkPlugin;
 
 impl Plugin for FrameworkPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<HookRegistry>()
             .init_resource::<network::NetworkConfig>()
+            .init_resource::<config::PluginConfigManager>()
             .configure_sets(
                 Update,
                 (

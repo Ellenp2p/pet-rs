@@ -1,0 +1,20 @@
+{
+  "demo_plugin": {
+    "enabled": true,
+    "log_level": "info",
+    "max_events_per_second": 100
+  },
+  "stats_plugin": {
+    "enabled": true,
+    "track_purchases": true,
+    "track_heals": true,
+    "track_gold": true,
+    "reset_interval": 3600
+  },
+  "reader_plugin": {
+    "enabled": true,
+    "poll_interval": 10,
+    "read_buffer_size": 1024,
+    "data_sources": ["stats_plugin", "demo_plugin"]
+  }
+}

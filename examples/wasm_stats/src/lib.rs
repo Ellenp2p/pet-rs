@@ -85,6 +85,27 @@ extern "C" {
         data_ptr: *const u8,
         data_len: usize,
     );
+    fn wasm_plugin_get_config(
+        key_ptr: *const u8,
+        key_len: usize,
+        result_ptr: *mut u8,
+        result_max_len: usize,
+    ) -> usize;
+}
+
+/// 读取布尔配置值
+fn read_config_bool(key: &str) -> Option<bool> {
+    unsafe {
+        let mut buffer = [0u8; 64];
+        let result =
+            wasm_plugin_get_config(key.as_ptr(), key.len(), buffer.as_mut_ptr(), buffer.len());
+        if result > 0 {
+            let value_str = core::str::from_utf8(&buffer[..result]).unwrap_or("");
+            Some(value_str == "true" || value_str == "Bool(true)")
+        } else {
+            None
+        }
+    }
 }
 
 /// 导出统计数据到主机

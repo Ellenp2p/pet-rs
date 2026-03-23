@@ -31,6 +31,8 @@ pub struct StoreData {
     pub read_data_fn: Option<Arc<dyn Fn(&str, &str) -> Option<Vec<u8>> + Send + Sync>>,
     /// Callback to write plugin data
     pub write_data_fn: Option<Arc<dyn Fn(&str, &str, Vec<u8>) + Send + Sync>>,
+    /// Callback to read configuration
+    pub read_config_fn: Option<Arc<dyn Fn(&str, &str) -> Option<String> + Send + Sync>>,
 }
 
 /// WASM plugin instance wrapper (store-per-call strategy).
@@ -45,6 +47,8 @@ pub struct WasmtimePlugin {
     read_data_fn: Option<Arc<dyn Fn(&str, &str) -> Option<Vec<u8>> + Send + Sync>>,
     /// Callback to write plugin data (for inter-plugin communication)
     write_data_fn: Option<Arc<dyn Fn(&str, &str, Vec<u8>) + Send + Sync>>,
+    /// Callback to read configuration
+    read_config_fn: Option<Arc<dyn Fn(&str, &str) -> Option<String> + Send + Sync>>,
 }
 
 #[cfg(feature = "wasm-plugin")]
@@ -90,6 +94,7 @@ impl WasmtimePlugin {
             state: std::sync::RwLock::new(Vec::new()),
             read_data_fn: None,
             write_data_fn: None,
+            read_config_fn: None,
         })
     }
 
@@ -99,6 +104,7 @@ impl WasmtimePlugin {
         override_id: Option<String>,
         read_data_fn: Arc<dyn Fn(&str, &str) -> Option<Vec<u8>> + Send + Sync>,
         write_data_fn: Arc<dyn Fn(&str, &str, Vec<u8>) + Send + Sync>,
+        read_config_fn: Arc<dyn Fn(&str, &str) -> Option<String> + Send + Sync>,
     ) -> Result<Self, FrameworkError> {
         let wasm_bytes = fs::read(wasm_path)
             .map_err(|e| FrameworkError::WasmLoad(format!("failed to read file: {}", e)))?;
@@ -121,6 +127,7 @@ impl WasmtimePlugin {
             state: std::sync::RwLock::new(Vec::new()),
             read_data_fn: Some(read_data_fn),
             write_data_fn: Some(write_data_fn),
+            read_config_fn: Some(read_config_fn),
         })
     }
 
@@ -237,6 +244,7 @@ impl WasmtimePlugin {
         plugin_id: WasmPluginId,
         read_data_fn: Arc<dyn Fn(&str, &str) -> Option<Vec<u8>> + Send + Sync>,
         write_data_fn: Arc<dyn Fn(&str, &str, Vec<u8>) + Send + Sync>,
+        read_config_fn: Arc<dyn Fn(&str, &str) -> Option<String> + Send + Sync>,
     ) -> Result<
         (
             Instance,
@@ -339,6 +347,53 @@ impl WasmtimePlugin {
                 FrameworkError::WasmLoad(format!("failed to define wasm_plugin_read_data: {}", e))
             })?;
 
+        // Define host function: wasm_plugin_get_config(key_ptr, key_len, result_ptr, result_max_len)
+        let read_config_fn_clone = read_config_fn.clone();
+        linker
+            .func_wrap(
+                "env",
+                "wasm_plugin_get_config",
+                move |mut caller: Caller<'_, StoreData>,
+                      key_ptr: u32,
+                      key_len: u32,
+                      result_ptr: u32,
+                      result_max_len: u32|
+                      -> u32 {
+                    let memory = caller
+                        .get_export("memory")
+                        .and_then(|e| e.into_memory())
+                        .unwrap();
+                    let mem_data = memory.data(&caller);
+
+                    // Read key
+                    let key_start = key_ptr as usize;
+                    let key_end = key_start + key_len as usize;
+                    if key_end > mem_data.len() {
+                        return 0;
+                    }
+                    let key_bytes = &mem_data[key_start..key_end];
+                    let key = core::str::from_utf8(key_bytes).unwrap_or("");
+
+                    // Read config from host
+                    if let Some(config_value) = read_config_fn_clone(key, key) {
+                        let config_bytes = config_value.as_bytes();
+                        let result_start = result_ptr as usize;
+                        let result_end =
+                            result_start + config_bytes.len().min(result_max_len as usize);
+                        if result_end <= mem_data.len() {
+                            let mem_data = memory.data_mut(&mut caller);
+                            mem_data[result_start..result_end]
+                                .copy_from_slice(&config_bytes[..result_end - result_start]);
+                            return config_bytes.len() as u32;
+                        }
+                    }
+                    0
+                },
+            )
+            .map_err(|e| {
+                FrameworkError::WasmLoad(format!("failed to define wasm_plugin_get_config: {}", e))
+            })?;
+
         // Also define unknown imports as traps for compatibility
         linker
             .define_unknown_imports_as_traps(&module)
@@ -348,6 +403,7 @@ impl WasmtimePlugin {
             plugin_id,
             read_data_fn: Some(read_data_fn),
             write_data_fn: Some(write_data_fn),
+            read_config_fn: Some(read_config_fn),
         };
 
         let mut store = Store::new(engine, store_data);
@@ -407,13 +463,18 @@ impl WasmPlugin for WasmtimePlugin {
 
     fn on_event(&self, entity_id: WasmEntityId, event: &str, data: &str) {
         // If we have data callbacks, use the enhanced instance creation
-        if let (Some(read_fn), Some(write_fn)) = (&self.read_data_fn, &self.write_data_fn) {
+        if let (Some(read_fn), Some(write_fn), Some(config_fn)) = (
+            &self.read_data_fn,
+            &self.write_data_fn,
+            &self.read_config_fn,
+        ) {
             let result = Self::create_instance_with_data_callbacks(
                 &self.engine,
                 &self.wasm_bytes,
                 self.id.clone(),
                 read_fn.clone(),
                 write_fn.clone(),
+                config_fn.clone(),
             );
             match result {
                 Ok((_instance, mut store, memory, _on_tick, on_event)) => {
