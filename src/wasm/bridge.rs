@@ -4,8 +4,10 @@ use bevy::prelude::*;
 use {
     super::{wasmtime_loader::WasmtimePlugin, WasmPlugin, WasmPluginId},
     crate::config::PluginConfigManager,
+    crate::dependency::DependencyManager,
     crate::error::FrameworkError,
     std::collections::HashMap,
+    std::collections::HashSet,
     std::sync::{Arc, Mutex},
 };
 
@@ -22,6 +24,10 @@ pub struct WasmPluginHost {
     plugin_data: Arc<Mutex<HashMap<WasmPluginId, HashMap<String, Vec<u8>>>>>,
     #[cfg(feature = "wasm-plugin")]
     config_manager: Option<Arc<Mutex<PluginConfigManager>>>,
+    #[cfg(feature = "wasm-plugin")]
+    dependency_manager: Arc<Mutex<DependencyManager>>,
+    #[cfg(feature = "wasm-plugin")]
+    plugin_paths: Arc<Mutex<HashMap<String, std::path::PathBuf>>>,
 }
 
 impl WasmPluginHost {
@@ -195,6 +201,79 @@ impl WasmPluginHost {
 
     #[cfg(not(feature = "wasm-plugin"))]
     pub fn unregister_wasm(&self, _plugin_id: &str) -> Result<(), FrameworkError> {
+        Ok(())
+    }
+
+    /// Load all plugins with their dependencies.
+    ///
+    /// This method resolves dependencies and loads plugins in the correct order.
+    #[cfg(feature = "wasm-plugin")]
+    pub fn load_plugins_with_dependencies(
+        &self,
+        plugin_paths: HashMap<String, std::path::PathBuf>,
+    ) -> Result<(), FrameworkError> {
+        // Store plugin paths
+        {
+            let mut paths = self
+                .plugin_paths
+                .lock()
+                .map_err(|_| FrameworkError::LockPoisoned)?;
+            *paths = plugin_paths.clone();
+        }
+
+        // Build dependency graph from configuration
+        let mut dep_manager = DependencyManager::new();
+        if let Some(config_manager) = &self.config_manager {
+            let manager = config_manager
+                .lock()
+                .map_err(|_| FrameworkError::LockPoisoned)?;
+            for plugin_id in plugin_paths.keys() {
+                if let Ok(deps) = manager.get_dependencies(plugin_id) {
+                    dep_manager.add_plugin_from_config(plugin_id, &deps);
+                }
+            }
+        }
+
+        // Resolve loading order
+        let loading_order = dep_manager
+            .get_loading_order()
+            .map_err(|e| FrameworkError::Plugin(format!("Dependency resolution failed: {}", e)))?;
+
+        // Load plugins in order
+        let mut loaded_plugins = HashSet::new();
+        for plugin_id in loading_order {
+            if let Some(path) = plugin_paths.get(&plugin_id) {
+                // Check if all dependencies are loaded
+                if let Ok(true) = dep_manager.can_load_plugin(&plugin_id, &loaded_plugins) {
+                    info!("Loading plugin '{}' with dependencies satisfied", plugin_id);
+                    self.register_wasm(path, Some(plugin_id.clone()))?;
+                    loaded_plugins.insert(plugin_id);
+                } else {
+                    warn!(
+                        "Skipping plugin '{}' - dependencies not satisfied",
+                        plugin_id
+                    );
+                }
+            }
+        }
+
+        // Update dependency manager
+        {
+            let mut dep_mgr = self
+                .dependency_manager
+                .lock()
+                .map_err(|_| FrameworkError::LockPoisoned)?;
+            *dep_mgr = dep_manager;
+        }
+
+        Ok(())
+    }
+
+    #[cfg(not(feature = "wasm-plugin"))]
+    pub fn load_plugins_with_dependencies(
+        &self,
+        _plugin_paths: HashMap<String, std::path::PathBuf>,
+    ) -> Result<(), FrameworkError> {
         Ok(())
     }
 

@@ -84,6 +84,15 @@ impl ConfigValue {
     }
 }
 
+/// Plugin dependency specification.
+#[derive(Debug, Clone)]
+pub struct PluginDependency {
+    /// Dependency plugin ID
+    pub plugin_id: String,
+    /// Version requirement (e.g., ">=1.0.0", "^2.1.0")
+    pub version_req: String,
+}
+
 /// Plugin configuration.
 #[derive(Debug, Clone)]
 pub struct PluginConfig {
@@ -91,6 +100,27 @@ pub struct PluginConfig {
     pub plugin_id: String,
     /// Configuration values
     pub values: HashMap<String, ConfigValue>,
+    /// Plugin dependencies
+    pub dependencies: Vec<PluginDependency>,
+}
+
+impl PluginConfig {
+    /// Create a new plugin configuration.
+    pub fn new(plugin_id: String) -> Self {
+        Self {
+            plugin_id,
+            values: HashMap::new(),
+            dependencies: Vec::new(),
+        }
+    }
+
+    /// Add a dependency to this plugin.
+    pub fn add_dependency(&mut self, plugin_id: String, version_req: String) {
+        self.dependencies.push(PluginDependency {
+            plugin_id,
+            version_req,
+        });
+    }
 }
 
 /// Configuration manager for plugins.
@@ -131,32 +161,52 @@ impl PluginConfigManager {
         // Parse JSON into plugin configurations
         if let Some(obj) = json.as_object() {
             for (plugin_id, config_value) in obj {
-                let plugin_config = Self::parse_config_value(config_value);
-                configs.insert(
-                    plugin_id.clone(),
-                    PluginConfig {
-                        plugin_id: plugin_id.clone(),
-                        values: plugin_config,
-                    },
-                );
+                let mut plugin_config = Self::parse_plugin_config(config_value);
+                plugin_config.plugin_id = plugin_id.clone();
+                configs.insert(plugin_id.clone(), plugin_config);
             }
         }
 
         Ok(())
     }
 
-    /// Parse a JSON value into a HashMap of ConfigValue.
-    fn parse_config_value(value: &serde_json::Value) -> HashMap<String, ConfigValue> {
-        let mut result = HashMap::new();
+    /// Parse a JSON value into a PluginConfig.
+    fn parse_plugin_config(value: &serde_json::Value) -> PluginConfig {
+        let mut config = PluginConfig::new(String::new());
 
         if let Some(obj) = value.as_object() {
             for (key, val) in obj {
-                let config_val = Self::parse_json_value(val);
-                result.insert(key.clone(), config_val);
+                if key == "dependencies" {
+                    // Parse dependencies array
+                    if let Some(deps_array) = val.as_array() {
+                        for dep in deps_array {
+                            if let Some(dep_obj) = dep.as_object() {
+                                let dep_id = dep_obj
+                                    .get("plugin_id")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("");
+                                let version_req = dep_obj
+                                    .get("version_req")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("*");
+                                if !dep_id.is_empty() {
+                                    config.add_dependency(
+                                        dep_id.to_string(),
+                                        version_req.to_string(),
+                                    );
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // Regular configuration value
+                    let config_val = Self::parse_json_value(val);
+                    config.values.insert(key.clone(), config_val);
+                }
             }
         }
 
-        result
+        config
     }
 
     /// Parse a single JSON value into ConfigValue.
@@ -232,10 +282,7 @@ impl PluginConfigManager {
 
         let plugin_config = configs
             .entry(plugin_id.to_string())
-            .or_insert_with(|| PluginConfig {
-                plugin_id: plugin_id.to_string(),
-                values: HashMap::new(),
-            });
+            .or_insert_with(|| PluginConfig::new(plugin_id.to_string()));
 
         plugin_config.values.insert(key.to_string(), value);
         Ok(())
@@ -266,6 +313,37 @@ impl PluginConfigManager {
             Ok(plugin_config.values.keys().cloned().collect())
         } else {
             Ok(Vec::new())
+        }
+    }
+
+    /// Get dependencies for a plugin.
+    pub fn get_dependencies(
+        &self,
+        plugin_id: &str,
+    ) -> Result<Vec<PluginDependency>, FrameworkError> {
+        let configs = self
+            .configs
+            .lock()
+            .map_err(|_| FrameworkError::LockPoisoned)?;
+
+        if let Some(plugin_config) = configs.get(plugin_id) {
+            Ok(plugin_config.dependencies.clone())
+        } else {
+            Ok(Vec::new())
+        }
+    }
+
+    /// Check if a plugin has any dependencies.
+    pub fn has_dependencies(&self, plugin_id: &str) -> Result<bool, FrameworkError> {
+        let configs = self
+            .configs
+            .lock()
+            .map_err(|_| FrameworkError::LockPoisoned)?;
+
+        if let Some(plugin_config) = configs.get(plugin_id) {
+            Ok(!plugin_config.dependencies.is_empty())
+        } else {
+            Ok(false)
         }
     }
 }
@@ -316,5 +394,18 @@ impl PluginConfigManager {
         _plugin_id: &str,
     ) -> Result<Vec<String>, crate::error::FrameworkError> {
         Ok(Vec::new())
+    }
+
+    /// Get dependencies for a plugin (stub).
+    pub fn get_dependencies(
+        &self,
+        _plugin_id: &str,
+    ) -> Result<Vec<PluginDependency>, crate::error::FrameworkError> {
+        Ok(Vec::new())
+    }
+
+    /// Check if a plugin has any dependencies (stub).
+    pub fn has_dependencies(&self, _plugin_id: &str) -> Result<bool, crate::error::FrameworkError> {
+        Ok(false)
     }
 }
