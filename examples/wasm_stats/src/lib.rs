@@ -186,8 +186,7 @@ pub extern "C" fn wasm_plugin_on_load() {
             gold_earned: 0,
         };
     }
-    // 导出初始统计数据
-    export_stats();
+    // 注意：不在 on_load 中调用 export_stats，因为主机可能还未准备好
 }
 
 /// Called when the plugin is unloaded
