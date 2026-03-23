@@ -22,25 +22,66 @@ pub extern "C" fn wasm_plugin_name_len() -> usize {
     PLUGIN_NAME.len() - 1
 }
 
+// ABI 函数声明（主机实现）
+extern "C" {
+    fn wasm_plugin_read_data(
+        key_ptr: *const u8,
+        key_len: usize,
+        result_ptr: *mut u8,
+        result_max_len: usize,
+    ) -> usize;
+}
+
 // Plugin state to track requests
 struct ReaderState {
     last_purchase_count: u32,
-    request_sent: bool,
+    last_heal_count: u32,
+    last_gold_earned: u32,
+    read_count: u32,
 }
 
 static mut STATE: ReaderState = ReaderState {
     last_purchase_count: 0,
-    request_sent: false,
+    last_heal_count: 0,
+    last_gold_earned: 0,
+    read_count: 0,
 };
+
+/// 读取其他插件的数据
+fn read_other_plugin_data(key: &str) -> Option<u32> {
+    unsafe {
+        let mut buffer = [0u8; 4];
+        let result =
+            wasm_plugin_read_data(key.as_ptr(), key.len(), buffer.as_mut_ptr(), buffer.len());
+        if result == 4 {
+            Some(u32::from_le_bytes(buffer))
+        } else {
+            None
+        }
+    }
+}
 
 #[no_mangle]
 pub extern "C" fn wasm_plugin_on_tick(entity_id: u64) {
-    // Every few ticks, request data from stats_plugin
+    // 每隔几帧读取其他插件的数据
     unsafe {
-        if !STATE.request_sent && entity_id % 10 == 0 {
-            // Request purchase count from stats_plugin
-            // This would be done via a special event in a real implementation
-            STATE.request_sent = true;
+        if entity_id % 10 == 0 {
+            // 读取 purchase_count
+            if let Some(count) = read_other_plugin_data("purchase_count") {
+                STATE.last_purchase_count = count;
+            }
+
+            // 读取 heal_count
+            if let Some(count) = read_other_plugin_data("heal_count") {
+                STATE.last_heal_count = count;
+            }
+
+            // 读取 gold_earned
+            if let Some(amount) = read_other_plugin_data("gold_earned") {
+                STATE.last_gold_earned = amount;
+            }
+
+            STATE.read_count += 1;
         }
     }
 }
@@ -63,24 +104,26 @@ pub extern "C" fn wasm_plugin_on_event(
         ""
     };
 
-    // Check if this is a response from stats_plugin
-    if event_str.starts_with("plugin_response:stats_plugin:") {
-        // Parse the response data (hex string)
-        let data_str = if data_ptr != core::ptr::null() && data_len > 0 {
-            unsafe {
-                let bytes = core::slice::from_raw_parts(data_ptr, data_len);
-                core::str::from_utf8(bytes).unwrap_or("")
+    // 处理事件
+    unsafe {
+        match event_str {
+            "purchase" | "heal" | "gain_gold" => {
+                // 当有事件发生时，立即读取最新的统计数据
+                if let Some(count) = read_other_plugin_data("purchase_count") {
+                    STATE.last_purchase_count = count;
+                }
+                if let Some(count) = read_other_plugin_data("heal_count") {
+                    STATE.last_heal_count = count;
+                }
+                if let Some(amount) = read_other_plugin_data("gold_earned") {
+                    STATE.last_gold_earned = amount;
+                }
             }
-        } else {
-            ""
-        };
-
-        // In a real implementation, you would parse the hex data
-        // For now, we just log that we received a response
-        unsafe {
-            STATE.last_purchase_count = 0; // Would parse from data_str
+            _ => {}
         }
     }
 
     let _ = entity_id;
+    let _ = data_ptr;
+    let _ = data_len;
 }

@@ -42,8 +42,42 @@ impl WasmPluginHost {
         path: &std::path::Path,
         plugin_id: Option<String>,
     ) -> Result<(), FrameworkError> {
-        // Load the new plugin
-        let new_plugin = WasmtimePlugin::load(path, plugin_id.clone())?;
+        // Create callbacks for inter-plugin communication
+        let plugin_data_clone = self.plugin_data.clone();
+        let read_data_fn: Arc<dyn Fn(&str, &str) -> Option<Vec<u8>> + Send + Sync> =
+            Arc::new(move |_plugin_id: &str, key: &str| {
+                // For now, we read from the current plugin's data
+                // In a full implementation, we'd need to pass the target plugin ID
+                let data = plugin_data_clone.lock().ok()?;
+                // Try to find any plugin that has this key
+                for (_, plugin_data) in data.iter() {
+                    if let Some(value) = plugin_data.get(key) {
+                        return Some(value.clone());
+                    }
+                }
+                None
+            });
+
+        let plugin_data_clone2 = self.plugin_data.clone();
+        let write_data_fn: Arc<dyn Fn(&str, &str, Vec<u8>) + Send + Sync> =
+            Arc::new(move |_plugin_id: &str, key: &str, value: Vec<u8>| {
+                // For now, we write to all plugins' data
+                // In a full implementation, we'd need to pass the target plugin ID
+                if let Ok(mut data) = plugin_data_clone2.lock() {
+                    // Write to all plugins (simplified approach)
+                    for (_, plugin_data) in data.iter_mut() {
+                        plugin_data.insert(key.to_string(), value.clone());
+                    }
+                }
+            });
+
+        // Load the new plugin with callbacks
+        let new_plugin = WasmtimePlugin::load_with_callbacks(
+            path,
+            plugin_id.clone(),
+            read_data_fn,
+            write_data_fn,
+        )?;
         let new_id = new_plugin.id().as_str().to_string();
 
         let mut plugins = self
@@ -201,23 +235,17 @@ impl WasmPluginHost {
         let target_plugin_id = parts[1];
         let data_key = parts[2];
 
-        // Find the requesting plugin (the one that sent the request)
-        // For now, we'll use the entity_id to identify the requesting plugin
-        // In a real implementation, you'd want to track which plugin sent the request
+        // Read specific data from target plugin using read_plugin_data
+        if let Ok(Some(data_value)) = self.read_plugin_data(target_plugin_id, data_key) {
+            // Convert data to hex string for transmission
+            let hex_data: String = data_value.iter().map(|b| format!("{:02x}", b)).collect();
 
-        // Read data from target plugin
-        if let Some(target_plugin) = plugins.iter().find(|p| p.id().as_str() == target_plugin_id) {
-            if let Some(plugin_data) = target_plugin.get_state() {
-                // Convert data to hex string for transmission
-                let hex_data: String = plugin_data.iter().map(|b| format!("{:02x}", b)).collect();
+            // Send response event back to requesting plugin
+            let response_event = format!("plugin_response:{}:{}", target_plugin_id, data_key);
 
-                // Send response event back to requesting plugin
-                let response_event = format!("plugin_response:{}:{}", target_plugin_id, data_key);
-
-                // Trigger response event for all plugins (the requesting plugin will handle it)
-                for plugin in plugins.iter() {
-                    plugin.on_event(super::WasmEntityId(entity_id), &response_event, &hex_data);
-                }
+            // Trigger response event for all plugins (the requesting plugin will handle it)
+            for plugin in plugins.iter() {
+                plugin.on_event(super::WasmEntityId(entity_id), &response_event, &hex_data);
             }
         }
 

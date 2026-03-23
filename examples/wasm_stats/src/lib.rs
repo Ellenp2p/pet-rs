@@ -77,6 +77,38 @@ pub extern "C" fn wasm_plugin_on_tick(entity_id: u64) {
     let _ = entity_id;
 }
 
+// ABI 函数声明（主机实现）
+extern "C" {
+    fn wasm_plugin_set_data(
+        key_ptr: *const u8,
+        key_len: usize,
+        data_ptr: *const u8,
+        data_len: usize,
+    );
+}
+
+/// 导出统计数据到主机
+fn export_stats() {
+    unsafe {
+        let stats = STATS.to_bytes();
+
+        // 导出 purchase_count
+        let key = b"purchase_count";
+        let value = STATS.purchase_count.to_le_bytes();
+        wasm_plugin_set_data(key.as_ptr(), key.len(), value.as_ptr(), value.len());
+
+        // 导出 heal_count
+        let key = b"heal_count";
+        let value = STATS.heal_count.to_le_bytes();
+        wasm_plugin_set_data(key.as_ptr(), key.len(), value.as_ptr(), value.len());
+
+        // 导出 gold_earned
+        let key = b"gold_earned";
+        let value = STATS.gold_earned.to_le_bytes();
+        wasm_plugin_set_data(key.as_ptr(), key.len(), value.as_ptr(), value.len());
+    }
+}
+
 /// Called when an event occurs
 #[no_mangle]
 pub extern "C" fn wasm_plugin_on_event(
@@ -124,6 +156,9 @@ pub extern "C" fn wasm_plugin_on_event(
             _ => {}
         }
     }
+
+    // 导出统计数据到主机
+    export_stats();
 
     let _ = entity_id;
 }

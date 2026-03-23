@@ -553,22 +553,46 @@ fn update_ui(
             #[cfg(not(feature = "wasm-plugin"))]
             let plugin_count = 0;
 
-            // Get stats from stats plugin
+            // Get stats from plugin data (inter-plugin communication)
             #[cfg(feature = "wasm-plugin")]
             let stats_text = {
-                if let Ok(Some(state)) = _wasm_host.get_plugin_state("stats_plugin") {
-                    // Try to parse stats from state
-                    if state.len() >= 12 {
-                        let purchase = u32::from_le_bytes(state[0..4].try_into().unwrap_or([0; 4]));
-                        let heal = u32::from_le_bytes(state[4..8].try_into().unwrap_or([0; 4]));
-                        let gold = u32::from_le_bytes(state[8..12].try_into().unwrap_or([0; 4]));
-                        format!("  Stats: P:{} H:{} G:{}", purchase, heal, gold)
+                let purchase = if let Ok(Some(data)) =
+                    _wasm_host.read_plugin_data("stats_plugin", "purchase_count")
+                {
+                    if data.len() >= 4 {
+                        u32::from_le_bytes(data[0..4].try_into().unwrap_or([0; 4]))
                     } else {
-                        "  Stats: N/A".to_string()
+                        0
                     }
                 } else {
-                    "  Stats: N/A".to_string()
-                }
+                    0
+                };
+
+                let heal = if let Ok(Some(data)) =
+                    _wasm_host.read_plugin_data("stats_plugin", "heal_count")
+                {
+                    if data.len() >= 4 {
+                        u32::from_le_bytes(data[0..4].try_into().unwrap_or([0; 4]))
+                    } else {
+                        0
+                    }
+                } else {
+                    0
+                };
+
+                let gold = if let Ok(Some(data)) =
+                    _wasm_host.read_plugin_data("stats_plugin", "gold_earned")
+                {
+                    if data.len() >= 4 {
+                        u32::from_le_bytes(data[0..4].try_into().unwrap_or([0; 4]))
+                    } else {
+                        0
+                    }
+                } else {
+                    0
+                };
+
+                format!("  Stats: P:{} H:{} G:{}", purchase, heal, gold)
             };
             #[cfg(not(feature = "wasm-plugin"))]
             let stats_text = "  Stats: N/A".to_string();
