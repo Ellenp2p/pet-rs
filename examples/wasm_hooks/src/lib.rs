@@ -41,6 +41,19 @@ pub extern "C" fn wasm_plugin_name_len() -> usize {
     PLUGIN_NAME.len() - 1 // Exclude null terminator
 }
 
+// Plugin version stored in a static buffer
+const PLUGIN_VERSION: &[u8] = b"1.0.0\0";
+
+#[no_mangle]
+pub extern "C" fn wasm_plugin_version() -> *const u8 {
+    PLUGIN_VERSION.as_ptr()
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_plugin_version_len() -> usize {
+    PLUGIN_VERSION.len() - 1 // Exclude null terminator
+}
+
 /// Called every frame by the framework
 #[no_mangle]
 pub extern "C" fn wasm_plugin_on_tick(entity_id: u64) {

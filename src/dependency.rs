@@ -3,7 +3,95 @@
 //! This module provides dependency resolution for WASM plugins.
 //! It can parse dependency declarations and resolve the loading order.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
+
+/// Parse a semantic version string into major, minor, patch components.
+pub fn parse_version(version: &str) -> Option<(u32, u32, u32)> {
+    let parts: Vec<&str> = version.split('.').collect();
+    if parts.len() != 3 {
+        return None;
+    }
+    let major = parts[0].parse().ok()?;
+    let minor = parts[1].parse().ok()?;
+    let patch = parts[2].parse().ok()?;
+    Some((major, minor, patch))
+}
+
+/// Compare two version strings.
+/// Returns:
+/// - Ordering::Less if version1 < version2
+/// - Ordering::Equal if version1 == version2
+/// - Ordering::Greater if version1 > version2
+pub fn compare_versions(version1: &str, version2: &str) -> Option<std::cmp::Ordering> {
+    let (major1, minor1, patch1) = parse_version(version1)?;
+    let (major2, minor2, patch2) = parse_version(version2)?;
+
+    match major1.cmp(&major2) {
+        std::cmp::Ordering::Equal => {}
+        ord => return Some(ord),
+    }
+    match minor1.cmp(&minor2) {
+        std::cmp::Ordering::Equal => {}
+        ord => return Some(ord),
+    }
+    Some(patch1.cmp(&patch2))
+}
+
+/// Check if a version satisfies a version requirement.
+/// Supports: >=, <=, >, <, =, ^, ~ prefixes.
+pub fn version_satisfies(version: &str, requirement: &str) -> bool {
+    if requirement == "*" || requirement.is_empty() {
+        return true;
+    }
+
+    let (op, req_version) = if let Some(rest) = requirement.strip_prefix(">=") {
+        (">=", rest)
+    } else if let Some(rest) = requirement.strip_prefix("<=") {
+        ("<=", rest)
+    } else if let Some(rest) = requirement.strip_prefix(">") {
+        (">", rest)
+    } else if let Some(rest) = requirement.strip_prefix("<") {
+        ("<", rest)
+    } else if let Some(rest) = requirement.strip_prefix("=") {
+        ("=", rest)
+    } else if let Some(rest) = requirement.strip_prefix("^") {
+        ("^", rest)
+    } else if let Some(rest) = requirement.strip_prefix("~") {
+        ("~", rest)
+    } else {
+        ("=", requirement)
+    };
+
+    let (major_v, minor_v, patch_v) = match parse_version(version) {
+        Some(v) => v,
+        None => return false,
+    };
+    let (major_r, minor_r, patch_r) = match parse_version(req_version) {
+        Some(v) => v,
+        None => return false,
+    };
+
+    match op {
+        ">=" => {
+            compare_versions(version, req_version).is_some_and(|o| o != std::cmp::Ordering::Less)
+        }
+        "<=" => {
+            compare_versions(version, req_version).is_some_and(|o| o != std::cmp::Ordering::Greater)
+        }
+        ">" => compare_versions(version, req_version) == Some(std::cmp::Ordering::Greater),
+        "<" => compare_versions(version, req_version) == Some(std::cmp::Ordering::Less),
+        "=" => version == req_version,
+        "^" => {
+            // Compatible: same major, minor >= required minor
+            major_v == major_r && (minor_v > minor_r || (minor_v == minor_r && patch_v >= patch_r))
+        }
+        "~" => {
+            // Patch-level: same major and minor, patch >= required patch
+            major_v == major_r && minor_v == minor_r && patch_v >= patch_r
+        }
+        _ => false,
+    }
+}
 
 /// Plugin dependency graph.
 #[derive(Debug, Clone, Default)]
@@ -117,6 +205,12 @@ pub enum DependencyError {
     CircularDependency(String),
     /// Missing dependency
     MissingDependency(String),
+    /// Version mismatch
+    VersionMismatch {
+        plugin_id: String,
+        required_version: String,
+        actual_version: String,
+    },
 }
 
 impl std::fmt::Display for DependencyError {
@@ -127,6 +221,17 @@ impl std::fmt::Display for DependencyError {
             }
             DependencyError::MissingDependency(plugin_id) => {
                 write!(f, "Missing dependency: {}", plugin_id)
+            }
+            DependencyError::VersionMismatch {
+                plugin_id,
+                required_version,
+                actual_version,
+            } => {
+                write!(
+                    f,
+                    "Version mismatch for plugin '{}': required '{}', got '{}'",
+                    plugin_id, required_version, actual_version
+                )
             }
         }
     }
@@ -183,6 +288,28 @@ impl DependencyManager {
             }
         }
         Ok(true)
+    }
+
+    /// Check if plugin versions satisfy dependency requirements.
+    pub fn check_version_compatibility(
+        &self,
+        plugin_versions: &HashMap<String, String>,
+        dependency_requirements: &HashMap<String, Vec<(String, String)>>,
+    ) -> Result<(), DependencyError> {
+        for requirements in dependency_requirements.values() {
+            for (dep_id, version_req) in requirements {
+                if let Some(actual_version) = plugin_versions.get(dep_id) {
+                    if !version_satisfies(actual_version, version_req) {
+                        return Err(DependencyError::VersionMismatch {
+                            plugin_id: dep_id.clone(),
+                            required_version: version_req.clone(),
+                            actual_version: actual_version.clone(),
+                        });
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Get plugins that should be loaded before a given plugin.
@@ -267,5 +394,49 @@ mod tests {
 
         let result = graph.resolve_loading_order();
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_version_parsing() {
+        assert_eq!(parse_version("1.2.3"), Some((1, 2, 3)));
+        assert_eq!(parse_version("0.0.1"), Some((0, 0, 1)));
+        assert_eq!(parse_version("10.20.30"), Some((10, 20, 30)));
+        assert_eq!(parse_version("invalid"), None);
+        assert_eq!(parse_version("1.2"), None);
+    }
+
+    #[test]
+    fn test_version_comparison() {
+        assert_eq!(
+            compare_versions("1.0.0", "1.0.0"),
+            Some(std::cmp::Ordering::Equal)
+        );
+        assert_eq!(
+            compare_versions("1.0.0", "1.0.1"),
+            Some(std::cmp::Ordering::Less)
+        );
+        assert_eq!(
+            compare_versions("1.0.1", "1.0.0"),
+            Some(std::cmp::Ordering::Greater)
+        );
+        assert_eq!(
+            compare_versions("1.1.0", "1.0.0"),
+            Some(std::cmp::Ordering::Greater)
+        );
+        assert_eq!(
+            compare_versions("2.0.0", "1.0.0"),
+            Some(std::cmp::Ordering::Greater)
+        );
+    }
+
+    #[test]
+    fn test_version_requirements() {
+        assert!(version_satisfies("1.2.3", ">=1.0.0"));
+        assert!(version_satisfies("1.2.3", "<=2.0.0"));
+        assert!(version_satisfies("1.2.3", "^1.0.0"));
+        assert!(version_satisfies("1.2.3", "~1.2.0"));
+        assert!(!version_satisfies("1.2.3", ">=2.0.0"));
+        assert!(!version_satisfies("1.2.3", "^2.0.0"));
+        assert!(version_satisfies("1.2.3", "*"));
     }
 }

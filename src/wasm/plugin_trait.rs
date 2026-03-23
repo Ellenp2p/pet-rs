@@ -22,6 +22,7 @@ impl WasmPluginId {
 pub trait WasmPlugin: Send + Sync {
     fn id(&self) -> &WasmPluginId;
     fn name(&self) -> &str;
+    fn version(&self) -> &str;
     fn on_tick(&self, entity_id: WasmEntityId);
     fn on_event(&self, entity_id: WasmEntityId, event: &str, data: &str);
 

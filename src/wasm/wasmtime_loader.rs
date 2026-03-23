@@ -40,6 +40,7 @@ pub struct StoreData {
 pub struct WasmtimePlugin {
     id: WasmPluginId,
     name: String,
+    version: String,
     wasm_bytes: Vec<u8>,
     engine: Engine,
     state: std::sync::RwLock<Vec<u8>>,
@@ -78,9 +79,9 @@ impl WasmtimePlugin {
 
         let engine = Engine::default();
 
-        // Create a temporary instance just to read the name
-        let (name, _instance, store, _memory, _on_tick, _on_event) =
-            Self::create_instance_with_name(&engine, &wasm_bytes)?;
+        // Create a temporary instance just to read the name and version
+        let (name, version, _instance, store, _memory, _on_tick, _on_event) =
+            Self::create_instance_with_name_and_version(&engine, &wasm_bytes)?;
         let id = WasmPluginId::new(override_id.unwrap_or_else(|| name.clone()));
 
         // Drop the temporary store
@@ -89,6 +90,7 @@ impl WasmtimePlugin {
         Ok(Self {
             id,
             name,
+            version,
             wasm_bytes,
             engine,
             state: std::sync::RwLock::new(Vec::new()),
@@ -111,9 +113,9 @@ impl WasmtimePlugin {
 
         let engine = Engine::default();
 
-        // Create a temporary instance just to read the name
-        let (name, _instance, store, _memory, _on_tick, _on_event) =
-            Self::create_instance_with_name(&engine, &wasm_bytes)?;
+        // Create a temporary instance just to read the name and version
+        let (name, version, _instance, store, _memory, _on_tick, _on_event) =
+            Self::create_instance_with_name_and_version(&engine, &wasm_bytes)?;
         let id = WasmPluginId::new(override_id.unwrap_or_else(|| name.clone()));
 
         // Drop the temporary store
@@ -122,6 +124,7 @@ impl WasmtimePlugin {
         Ok(Self {
             id,
             name,
+            version,
             wasm_bytes,
             engine,
             state: std::sync::RwLock::new(Vec::new()),
@@ -235,6 +238,92 @@ impl WasmtimePlugin {
             .map_err(|e| FrameworkError::WasmLoad(format!("plugin name not valid UTF-8: {}", e)))?;
 
         Ok((name, instance, store, memory, on_tick, on_event))
+    }
+
+    /// Create instance and read name and version in one go.
+    fn create_instance_with_name_and_version(
+        engine: &Engine,
+        wasm_bytes: &[u8],
+    ) -> Result<
+        (
+            String,
+            String,
+            Instance,
+            Store<()>,
+            Memory,
+            TypedFunc<u64, ()>,
+            TypedFunc<(u64, u32, u32, u32, u32), ()>,
+        ),
+        FrameworkError,
+    > {
+        let (_, instance, mut store, memory, on_tick, on_event) =
+            Self::create_instance(engine, wasm_bytes)?;
+
+        // Read plugin name
+        let name_ptr = instance
+            .get_typed_func::<(), u32>(&mut store, "wasm_plugin_name")
+            .map_err(|e| FrameworkError::WasmLoad(format!("missing wasm_plugin_name: {}", e)))?
+            .call(&mut store, ())
+            .map_err(|e| {
+                FrameworkError::WasmLoad(format!("wasm_plugin_name call failed: {}", e))
+            })?;
+
+        let name_len = instance
+            .get_typed_func::<(), u32>(&mut store, "wasm_plugin_name_len")
+            .map_err(|e| FrameworkError::WasmLoad(format!("missing wasm_plugin_name_len: {}", e)))?
+            .call(&mut store, ())
+            .map_err(|e| {
+                FrameworkError::WasmLoad(format!("wasm_plugin_name_len call failed: {}", e))
+            })?;
+
+        // Read from wasm memory
+        let data = memory.data(&store);
+        let start = name_ptr as usize;
+        let end = start + name_len as usize;
+
+        if end > data.len() {
+            return Err(FrameworkError::WasmLoad(
+                "plugin name pointer out of bounds".into(),
+            ));
+        }
+
+        let name_bytes = &data[start..end];
+        let name = String::from_utf8(name_bytes.to_vec())
+            .map_err(|e| FrameworkError::WasmLoad(format!("plugin name not valid UTF-8: {}", e)))?;
+
+        // Read plugin version (optional)
+        let version = if let Ok(version_ptr_func) =
+            instance.get_typed_func::<(), u32>(&mut store, "wasm_plugin_version")
+        {
+            if let Ok(version_len_func) =
+                instance.get_typed_func::<(), u32>(&mut store, "wasm_plugin_version_len")
+            {
+                if let Ok(version_ptr) = version_ptr_func.call(&mut store, ()) {
+                    if let Ok(version_len) = version_len_func.call(&mut store, ()) {
+                        let data = memory.data(&store);
+                        let start = version_ptr as usize;
+                        let end = start + version_len as usize;
+                        if end <= data.len() {
+                            let version_bytes = &data[start..end];
+                            String::from_utf8(version_bytes.to_vec())
+                                .unwrap_or_else(|_| "0.0.0".to_string())
+                        } else {
+                            "0.0.0".to_string()
+                        }
+                    } else {
+                        "0.0.0".to_string()
+                    }
+                } else {
+                    "0.0.0".to_string()
+                }
+            } else {
+                "0.0.0".to_string()
+            }
+        } else {
+            "0.0.0".to_string()
+        };
+
+        Ok((name, version, instance, store, memory, on_tick, on_event))
     }
 
     /// Create instance with custom host functions for data read/write.
@@ -445,6 +534,10 @@ impl WasmPlugin for WasmtimePlugin {
 
     fn name(&self) -> &str {
         &self.name
+    }
+
+    fn version(&self) -> &str {
+        &self.version
     }
 
     fn on_tick(&self, entity_id: WasmEntityId) {
