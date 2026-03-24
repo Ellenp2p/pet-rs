@@ -1,17 +1,32 @@
-//! CLI/TUI Pet Example
+//! CLI/TUI Pet Example using ratatui
 //!
 //! This example demonstrates the pet-rs framework in a terminal UI
-//! without using Bevy. It uses crossterm for terminal input/output.
+//! using ratatui and crossterm for a professional TUI experience.
 //!
 //! ## Usage
 //!
 //! ```bash
-//! cargo run --example cli_pet --features wasm-plugin
+//! cargo run --example cli_pet
 //! ```
 
+use crossterm::{
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind},
+    execute,
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+};
 use pet_rs::prelude::*;
-use std::io::{self, Write};
-use std::time::{Duration, Instant};
+use ratatui::{
+    backend::CrosstermBackend,
+    layout::{Constraint, Direction, Layout},
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+    widgets::{Block, Borders, Paragraph},
+    Frame, Terminal,
+};
+use std::{
+    io,
+    time::{Duration, Instant},
+};
 
 // ============================================================
 // Game State
@@ -25,13 +40,25 @@ struct PetState {
     mood: Mood,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 enum Mood {
     Happy,
     Neutral,
     Sad,
     Sick,
     Dead,
+}
+
+impl std::fmt::Display for Mood {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Mood::Happy => write!(f, "Happy"),
+            Mood::Neutral => write!(f, "Neutral"),
+            Mood::Sad => write!(f, "Sad"),
+            Mood::Sick => write!(f, "Sick"),
+            Mood::Dead => write!(f, "Dead"),
+        }
+    }
 }
 
 impl PetState {
@@ -94,69 +121,6 @@ impl PetState {
 }
 
 // ============================================================
-// UI Rendering
-// ============================================================
-
-fn render_ui(pet: &PetState, stats: &Stats) {
-    // Clear screen
-    print!("\x1B[2J\x1B[1;1H");
-
-    let health_bar = make_bar(pet.health / 100.0);
-    let hunger_bar = make_bar(pet.hunger / 100.0);
-
-    println!("+--------------------------------------------------------------------+");
-    println!("|  VIRTUAL PET - CLI/TUI Demo                                        |");
-    println!("+========================+===========================================+");
-    println!("| PET STATUS             | SHOP (Plugin-Controlled)                  |");
-    println!("|                        |                                           |");
-    println!(
-        "| Name: {:<17} | Available Items:                          |",
-        pet.name
-    );
-    println!(
-        "| Health: {} {:>3}% | [1] Basic Food   - 10g  (+20 hunger)      |",
-        health_bar, pet.health as i32
-    );
-    println!(
-        "| Hunger: {} {:>3}% | [2] Premium Food - 25g  (+50 hunger)      |",
-        hunger_bar, pet.hunger as i32
-    );
-    println!(
-        "| Mood:   {:<15} | [3] Elixir       - 50g  (+30 health)      |",
-        format!("{:?}", pet.mood)
-    );
-    println!(
-        "| Gold:   {:<14} |                                           |",
-        pet.gold
-    );
-    println!("|                        | Plugin Effects:                           |");
-    println!(
-        "| Stats: P:{} H:{} G:{}   | - Dynamic pricing (5% per purchase)       |",
-        stats.purchases, stats.heals, stats.gold_earned
-    );
-    println!("|                        | - Unlock: Premium at 5 purchases          |");
-    println!("|                        | - Discount: 10% after 10 purchases       |");
-    println!("+========================+===========================================+");
-    println!("| [1-3] Buy Items  [F] Quick Food  [H] Heal  [G] Gold  [Q] Quit    |");
-    println!("+--------------------------------------------------------------------+");
-    print!("> ");
-    io::stdout().flush().unwrap();
-}
-
-fn make_bar(ratio: f32) -> String {
-    let filled = (ratio * 10.0) as i32;
-    let empty = 10 - filled;
-    let mut bar = String::new();
-    for _ in 0..filled {
-        bar.push('#');
-    }
-    for _ in 0..empty {
-        bar.push('.');
-    }
-    bar
-}
-
-// ============================================================
 // Statistics
 // ============================================================
 
@@ -177,119 +141,434 @@ impl Stats {
 }
 
 // ============================================================
+// App State
+// ============================================================
+
+struct App {
+    pet: PetState,
+    stats: Stats,
+    hooks: HookRegistry,
+    should_quit: bool,
+    last_update: Instant,
+    update_interval: Duration,
+    messages: Vec<String>,
+}
+
+impl App {
+    fn new() -> Self {
+        let mut hooks = HookRegistry::default();
+        hooks.register_fn("on_spawn", |_ctx| {
+            // Hook callback - in TUI we don't print here
+        });
+        hooks.register_fn("on_feed", |_ctx| {});
+        hooks.register_fn("on_purchase", |_ctx| {});
+        hooks.register_fn("on_reward", |_ctx| {});
+
+        let pet = PetState::new("Buddy");
+
+        // Trigger spawn hook
+        hooks.trigger("on_spawn", &HookContext { entity: 0 });
+
+        Self {
+            pet,
+            stats: Stats::new(),
+            hooks,
+            should_quit: false,
+            last_update: Instant::now(),
+            update_interval: Duration::from_millis(500),
+            messages: vec!["Welcome to Virtual Pet!".to_string()],
+        }
+    }
+
+    fn update(&mut self) {
+        let now = Instant::now();
+        let delta = now.duration_since(self.last_update).as_secs_f32();
+        if now.duration_since(self.last_update) >= self.update_interval {
+            self.pet.decay(delta);
+            self.last_update = now;
+        }
+    }
+
+    fn add_message(&mut self, msg: String) {
+        self.messages.push(msg);
+        if self.messages.len() > 5 {
+            self.messages.remove(0);
+        }
+    }
+
+    fn on_tick(&mut self) {
+        self.update();
+    }
+
+    fn on_key(&mut self, key: KeyCode) {
+        match key {
+            KeyCode::Char('q') | KeyCode::Char('Q') => {
+                self.should_quit = true;
+            }
+            KeyCode::Char('1') => {
+                if self.pet.spend(10) {
+                    self.pet.feed(20.0);
+                    self.stats.purchases += 1;
+                    self.hooks
+                        .trigger("on_purchase", &HookContext { entity: 0 });
+                    self.add_message("Bought Basic Food! (+20 hunger)".to_string());
+                } else {
+                    self.add_message("Not enough gold!".to_string());
+                }
+            }
+            KeyCode::Char('2') => {
+                if self.pet.spend(25) {
+                    self.pet.feed(50.0);
+                    self.stats.purchases += 1;
+                    self.hooks
+                        .trigger("on_purchase", &HookContext { entity: 0 });
+                    self.add_message("Bought Premium Food! (+50 hunger)".to_string());
+                } else {
+                    self.add_message("Not enough gold!".to_string());
+                }
+            }
+            KeyCode::Char('3') => {
+                if self.pet.spend(50) {
+                    self.pet.heal(30.0);
+                    self.stats.purchases += 1;
+                    self.hooks
+                        .trigger("on_purchase", &HookContext { entity: 0 });
+                    self.add_message("Bought Elixir! (+30 health)".to_string());
+                } else {
+                    self.add_message("Not enough gold!".to_string());
+                }
+            }
+            KeyCode::Char('f') | KeyCode::Char('F') => {
+                if self.pet.spend(10) {
+                    self.pet.feed(20.0);
+                    self.stats.purchases += 1;
+                    self.hooks.trigger("on_feed", &HookContext { entity: 0 });
+                    self.add_message("Fed pet! (+20 hunger)".to_string());
+                } else {
+                    self.add_message("Not enough gold!".to_string());
+                }
+            }
+            KeyCode::Char('h') | KeyCode::Char('H') => {
+                self.pet.heal(15.0);
+                self.stats.heals += 1;
+                self.add_message("Healed pet! (+15 health)".to_string());
+            }
+            KeyCode::Char('g') | KeyCode::Char('G') => {
+                self.pet.gain(50);
+                self.stats.gold_earned += 50;
+                self.hooks.trigger("on_reward", &HookContext { entity: 0 });
+                self.add_message("Gained 50 gold!".to_string());
+            }
+            _ => {}
+        }
+    }
+}
+
+// ============================================================
+// UI Rendering
+// ============================================================
+
+fn ui(f: &mut Frame, app: &App) {
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3), // Title
+            Constraint::Min(10),   // Main content
+            Constraint::Length(3), // Controls
+        ])
+        .split(f.area());
+
+    // Title
+    let title = Paragraph::new("VIRTUAL PET - CLI/TUI Demo")
+        .style(
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )
+        .block(Block::default().borders(Borders::ALL));
+    f.render_widget(title, chunks[0]);
+
+    // Main content split into left (Pet Status) and right (Shop)
+    let main_chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(chunks[1]);
+
+    // Pet Status (Left)
+    let pet_status = create_pet_status(app);
+    f.render_widget(pet_status, main_chunks[0]);
+
+    // Shop (Right)
+    let shop = create_shop(app);
+    f.render_widget(shop, main_chunks[1]);
+
+    // Controls (Bottom)
+    let controls = create_controls();
+    f.render_widget(controls, chunks[2]);
+}
+
+fn create_pet_status(app: &App) -> Paragraph<'_> {
+    let pet_info = vec![
+        Line::from(vec![
+            Span::styled("Name: ", Style::default().fg(Color::White)),
+            Span::styled(
+                app.pet.name.clone(),
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("Health: ", Style::default().fg(Color::White)),
+            Span::styled(
+                format!("{:.0}%", app.pet.health),
+                Style::default()
+                    .fg(if app.pet.health > 50.0 {
+                        Color::Green
+                    } else if app.pet.health > 25.0 {
+                        Color::Yellow
+                    } else {
+                        Color::Red
+                    })
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("Hunger: ", Style::default().fg(Color::White)),
+            Span::styled(
+                format!("{:.0}%", app.pet.hunger),
+                Style::default()
+                    .fg(if app.pet.hunger > 50.0 {
+                        Color::Green
+                    } else if app.pet.hunger > 25.0 {
+                        Color::Yellow
+                    } else {
+                        Color::Red
+                    })
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("Mood: ", Style::default().fg(Color::White)),
+            Span::styled(
+                format!("{}", app.pet.mood),
+                Style::default()
+                    .fg(match app.pet.mood {
+                        Mood::Happy => Color::Green,
+                        Mood::Neutral => Color::Yellow,
+                        Mood::Sad => Color::Blue,
+                        Mood::Sick => Color::Magenta,
+                        Mood::Dead => Color::Red,
+                    })
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("Gold: ", Style::default().fg(Color::White)),
+            Span::styled(
+                format!("{}", app.pet.gold),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]),
+        Line::from(""),
+        Line::from(vec![Span::styled(
+            "Stats",
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        )]),
+        Line::from(vec![Span::styled(
+            format!("Purchases: {}", app.stats.purchases),
+            Style::default().fg(Color::Cyan),
+        )]),
+        Line::from(vec![Span::styled(
+            format!("Heals: {}", app.stats.heals),
+            Style::default().fg(Color::Green),
+        )]),
+        Line::from(vec![Span::styled(
+            format!("Gold Earned: {}", app.stats.gold_earned),
+            Style::default().fg(Color::Yellow),
+        )]),
+        Line::from(""),
+        Line::from(vec![Span::styled(
+            "Messages:",
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        )]),
+    ];
+
+    let mut all_lines = pet_info;
+    for msg in &app.messages {
+        all_lines.push(Line::from(vec![Span::styled(
+            format!("  {}", msg),
+            Style::default().fg(Color::Gray),
+        )]));
+    }
+
+    Paragraph::new(all_lines).block(
+        Block::default()
+            .title("PET STATUS")
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Cyan)),
+    )
+}
+
+fn create_shop(_app: &App) -> Paragraph<'_> {
+    let items = vec![
+        Line::from(vec![Span::styled(
+            "Available Items:",
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        )]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("[1] Basic Food   ", Style::default().fg(Color::Green)),
+            Span::styled("- 10g  ", Style::default().fg(Color::Yellow)),
+            Span::styled("(+20 hunger)", Style::default().fg(Color::Cyan)),
+        ]),
+        Line::from(vec![
+            Span::styled("[2] Premium Food ", Style::default().fg(Color::Blue)),
+            Span::styled("- 25g  ", Style::default().fg(Color::Yellow)),
+            Span::styled("(+50 hunger)", Style::default().fg(Color::Cyan)),
+        ]),
+        Line::from(vec![
+            Span::styled("[3] Elixir       ", Style::default().fg(Color::Magenta)),
+            Span::styled("- 50g  ", Style::default().fg(Color::Yellow)),
+            Span::styled("(+30 health)", Style::default().fg(Color::Green)),
+        ]),
+        Line::from(""),
+        Line::from(vec![Span::styled(
+            "Quick Actions:",
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        )]),
+        Line::from(vec![
+            Span::styled("[F] ", Style::default().fg(Color::Green)),
+            Span::styled(
+                "Quick Food - 10g (+20 hunger)",
+                Style::default().fg(Color::White),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("[H] ", Style::default().fg(Color::Green)),
+            Span::styled("Heal (+15 health)", Style::default().fg(Color::White)),
+        ]),
+        Line::from(vec![
+            Span::styled("[G] ", Style::default().fg(Color::Yellow)),
+            Span::styled("Gain Gold (+50g)", Style::default().fg(Color::White)),
+        ]),
+    ];
+
+    Paragraph::new(items).block(
+        Block::default()
+            .title("SHOP")
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Yellow)),
+    )
+}
+
+fn create_controls() -> Paragraph<'static> {
+    let controls = vec![Line::from(vec![
+        Span::styled(
+            "[1-3] ",
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled("Buy Items  ", Style::default().fg(Color::White)),
+        Span::styled(
+            "[F] ",
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled("Quick Food  ", Style::default().fg(Color::White)),
+        Span::styled(
+            "[H] ",
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled("Heal  ", Style::default().fg(Color::White)),
+        Span::styled(
+            "[G] ",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled("Gold  ", Style::default().fg(Color::White)),
+        Span::styled(
+            "[Q] ",
+            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled("Quit", Style::default().fg(Color::White)),
+    ])];
+
+    Paragraph::new(controls).block(
+        Block::default()
+            .title("CONTROLS")
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::White)),
+    )
+}
+
+// ============================================================
 // Main Loop
 // ============================================================
 
-fn main() {
-    println!("Initializing Virtual Pet CLI/TUI Demo...");
-    println!("Press any key to start...");
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Setup terminal
+    enable_raw_mode()?;
+    let mut stdout = io::stdout();
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend)?;
 
-    // Initialize hooks
-    let mut hooks = HookRegistry::default();
-    hooks.register_fn("on_spawn", |_ctx| {
-        println!("[HOOK] Pet spawned!");
-    });
-    hooks.register_fn("on_feed", |_ctx| {
-        println!("[HOOK] Pet fed!");
-    });
-    hooks.register_fn("on_purchase", |_ctx| {
-        println!("[HOOK] Purchase made!");
-    });
-    hooks.register_fn("on_reward", |_ctx| {
-        println!("[HOOK] Reward given!");
-    });
+    // Create app state
+    let mut app = App::new();
 
-    // Create pet state
-    let mut pet = PetState::new("Buddy");
-    let mut stats = Stats::new();
-
-    // Trigger spawn hook
-    hooks.trigger("on_spawn", &HookContext { entity: 0 });
-
-    // Main game loop
-    let mut last_update = Instant::now();
-    let update_interval = Duration::from_secs(1);
+    // Main loop
+    let tick_rate = Duration::from_millis(250);
+    let mut last_tick = Instant::now();
 
     loop {
-        // Update pet state
-        let now = Instant::now();
-        let delta = now.duration_since(last_update).as_secs_f32();
-        if now.duration_since(last_update) >= update_interval {
-            pet.decay(delta);
-            last_update = now;
-        }
+        terminal.draw(|f| ui(f, &app))?;
 
-        // Render UI
-        render_ui(&pet, &stats);
+        let timeout = tick_rate
+            .checked_sub(last_tick.elapsed())
+            .unwrap_or_else(|| Duration::from_secs(0));
 
-        // Read input
-        let mut input = String::new();
-        io::stdin().read_line(&mut input).unwrap();
-        let input = input.trim();
-
-        // Process input
-        match input {
-            "1" => {
-                if pet.spend(10) {
-                    pet.feed(20.0);
-                    stats.purchases += 1;
-                    hooks.trigger("on_purchase", &HookContext { entity: 0 });
-                    println!("[GAME] Bought Basic Food!");
-                } else {
-                    println!("[GAME] Not enough gold!");
+        if event::poll(timeout)? {
+            if let Event::Key(key) = event::read()? {
+                if key.kind == KeyEventKind::Press {
+                    app.on_key(key.code);
                 }
-            }
-            "2" => {
-                if pet.spend(25) {
-                    pet.feed(50.0);
-                    stats.purchases += 1;
-                    hooks.trigger("on_purchase", &HookContext { entity: 0 });
-                    println!("[GAME] Bought Premium Food!");
-                } else {
-                    println!("[GAME] Not enough gold!");
-                }
-            }
-            "3" => {
-                if pet.spend(50) {
-                    pet.heal(30.0);
-                    stats.purchases += 1;
-                    hooks.trigger("on_purchase", &HookContext { entity: 0 });
-                    println!("[GAME] Bought Elixir!");
-                } else {
-                    println!("[GAME] Not enough gold!");
-                }
-            }
-            "f" | "F" => {
-                if pet.spend(10) {
-                    pet.feed(20.0);
-                    stats.purchases += 1;
-                    hooks.trigger("on_feed", &HookContext { entity: 0 });
-                    println!("[GAME] Fed pet!");
-                } else {
-                    println!("[GAME] Not enough gold!");
-                }
-            }
-            "h" | "H" => {
-                pet.heal(15.0);
-                stats.heals += 1;
-                println!("[GAME] Healed pet!");
-            }
-            "g" | "G" => {
-                pet.gain(50);
-                stats.gold_earned += 50;
-                hooks.trigger("on_reward", &HookContext { entity: 0 });
-                println!("[GAME] Gained 50 gold!");
-            }
-            "q" | "Q" => {
-                println!("Goodbye!");
-                break;
-            }
-            _ => {
-                println!("[GAME] Unknown command: {}", input);
             }
         }
 
-        // Wait a bit for feedback
-        std::thread::sleep(Duration::from_millis(500));
+        if last_tick.elapsed() >= tick_rate {
+            app.on_tick();
+            last_tick = Instant::now();
+        }
+
+        if app.should_quit {
+            break;
+        }
     }
+
+    // Restore terminal
+    disable_raw_mode()?;
+    execute!(
+        terminal.backend_mut(),
+        LeaveAlternateScreen,
+        DisableMouseCapture
+    )?;
+    terminal.show_cursor()?;
+
+    Ok(())
 }

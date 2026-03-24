@@ -30,10 +30,16 @@ default = []
 wasm-plugin = ["wasmtime"]
 
 [dev-dependencies]
+ratatui = "0.28"
+crossterm = "0.28"
 
 [[example]]
 name = "basic_pet"
 path = "examples/basic_pet.rs"
+
+[[example]]
+name = "cli_pet"
+path = "examples/cli_pet.rs"
 
 [[test]]
 name = "pet_tests"
