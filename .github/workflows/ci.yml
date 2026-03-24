@@ -36,8 +36,8 @@ jobs:
             target
           key: check-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: check-${{ runner.os }}-
-    - run: cargo check --all-targets
-    - run: cargo check --all-targets --features wasm-plugin
+      - run: cargo check --all-targets
+      - run: cargo check --all-targets --features wasm-plugin
 
   test:
     name: Test
