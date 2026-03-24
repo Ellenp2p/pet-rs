@@ -966,7 +966,7 @@ fn update_ui(
         format!("VIP: Lv.{}  Disc: {}%", vip_level, discount_chance)
     };
     #[cfg(not(feature = "wasm-plugin"))]
-    let discount_text = String::new();
+    let discount_text = "VIP: Lv.1  Disc: 20%".to_string();
 
     let mood_emoji = match mood {
         Mood::Happy => "Happy",
