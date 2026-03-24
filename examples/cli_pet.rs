@@ -224,7 +224,7 @@ impl App {
 
     fn record_purchase(&mut self) {
         self.stats.purchases += 1;
-        if self.stats.purchases % 10 == 0 {
+        if self.stats.purchases.is_multiple_of(10) {
             self.vip_level += 1;
         }
         self.discount_chance = self.calculate_discount_chance();

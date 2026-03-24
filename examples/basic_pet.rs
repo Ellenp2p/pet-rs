@@ -7,7 +7,6 @@ use bevy::prelude::*;
 use bevy_adapter::BevyWasmPluginHost;
 use bevy_adapter::FrameworkPlugin;
 use bevy_adapter::{configure_backend, BevyHookRegistry, FrameworkSet};
-use pet_rs::prelude::*;
 use std::collections::HashMap;
 
 #[cfg(not(feature = "wasm-plugin"))]
@@ -50,8 +49,6 @@ mod wasm_stub {
         }
     }
 }
-#[cfg(not(feature = "wasm-plugin"))]
-use wasm_stub::WasmPluginHost;
 
 // ============================================================
 // Components

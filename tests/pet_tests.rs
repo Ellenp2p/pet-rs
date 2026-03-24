@@ -160,7 +160,12 @@ mod network_channel_tests {
         }
 
         let channel: NetworkChannel<Dto> = NetworkChannel::default();
-        channel.send(Dto { id: 1, value: 3.14 }).unwrap();
+        channel
+            .send(Dto {
+                id: 1,
+                value: std::f32::consts::PI,
+            })
+            .unwrap();
         let msgs = channel.drain_outgoing().unwrap();
         assert_eq!(msgs[0].id, 1);
     }

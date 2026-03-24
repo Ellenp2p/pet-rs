@@ -11,20 +11,15 @@ use pet_rs::prelude::*;
 // ============================================================
 
 /// Bevy wrapper for HookRegistry.
-#[derive(Resource)]
+#[derive(Resource, Default)]
 pub struct BevyHookRegistry(pub HookRegistry);
-
-impl Default for BevyHookRegistry {
-    fn default() -> Self {
-        Self(HookRegistry::default())
-    }
-}
 
 impl BevyHookRegistry {
     pub fn trigger(&self, key: &str, ctx: &pet_rs::hooks::HookContext) {
         self.0.trigger(key, ctx);
     }
 
+    #[allow(dead_code)]
     pub fn register(
         &mut self,
         key: impl Into<pet_rs::hooks::HookKey>,
@@ -33,6 +28,7 @@ impl BevyHookRegistry {
         self.0.register(key, callback);
     }
 
+    #[allow(dead_code)]
     pub fn register_fn<F>(&mut self, key: impl Into<pet_rs::hooks::HookKey>, f: F)
     where
         F: Fn(&pet_rs::hooks::HookContext) + Send + Sync + 'static,
@@ -42,24 +38,12 @@ impl BevyHookRegistry {
 }
 
 /// Bevy wrapper for NetworkConfig.
-#[derive(Resource, Deref, DerefMut, Clone)]
+#[derive(Resource, Deref, DerefMut, Clone, Default)]
 pub struct BevyNetworkConfig(pub NetworkConfig);
 
-impl Default for BevyNetworkConfig {
-    fn default() -> Self {
-        Self(NetworkConfig::default())
-    }
-}
-
 /// Bevy wrapper for PluginConfigManager.
-#[derive(Resource, Deref, DerefMut)]
+#[derive(Resource, Deref, DerefMut, Default)]
 pub struct BevyPluginConfigManager(pub PluginConfigManager);
-
-impl Default for BevyPluginConfigManager {
-    fn default() -> Self {
-        Self(PluginConfigManager::default())
-    }
-}
 
 /// Bevy wrapper for WasmPluginHost.
 #[cfg(feature = "wasm-plugin")]
