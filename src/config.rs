@@ -16,7 +16,6 @@
 //! }
 //! ```
 
-use bevy::prelude::*;
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -151,7 +150,7 @@ impl PluginConfig {
 /// Manages configuration files for WASM plugins.
 /// Configuration files are stored in JSON format.
 #[cfg(feature = "wasm-plugin")]
-#[derive(Resource, Default)]
+#[derive(Default)]
 pub struct PluginConfigManager {
     /// Plugin configurations indexed by plugin ID
     configs: Arc<Mutex<HashMap<String, PluginConfig>>>,
@@ -429,7 +428,7 @@ impl PluginConfigManager {
 
 /// Stub implementation for non-wasm-plugin feature.
 #[cfg(not(feature = "wasm-plugin"))]
-#[derive(Resource, Default)]
+#[derive(Default)]
 pub struct PluginConfigManager;
 
 #[cfg(not(feature = "wasm-plugin"))]

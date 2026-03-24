@@ -1,175 +1,268 @@
-# pet-rs WASM 插件系统开发计划
+# pet-rs 框架架构重构计划
 
 ## 项目概述
 
-pet-rs 是一个基于 Bevy ECS 的虚拟宠物框架，支持 WASM 插件系统。
+pet-rs 是一个虚拟宠物框架，支持 WASM 插件系统。本次重构目标是将框架核心与渲染层分离，使框架可在任何渲染系统中使用。
 
-## 当前状态
+## 架构设计
 
-### ✅ 已完成的功能
+### 核心原则
 
-#### 1. 核心框架（100%）
-- WASM 运行时（wasmtime v24）
-- 热重载支持
-- 插件状态存储
-- 插件间通信
+1. **核心框架（src/）** - 纯 Rust 实现，不依赖任何渲染库
+2. **渲染层（examples/）** - 使用 Bevy、ratatui 或其他渲染系统
+3. **适配器模式** - 在 examples/ 中定义渲染系统的适配器
 
-#### 2. 生命周期钩子（100%）
-- `on_load` - 插件加载时调用
-- `on_unload` - 插件卸载时调用
-- `on_error` - 错误处理钩子
+### 目录结构
 
-#### 3. 配置系统（100%）
-- JSON 配置文件支持
-- 配置读取接口
-- 配置解析和验证
+```
+src/                        # 纯 Rust 核心框架（无 Bevy 依赖）
+├── config.rs              # 配置管理
+├── dependency.rs          # 依赖解析
+├── error.rs               # 错误类型
+├── hooks.rs               # 钩子系统
+├── network.rs             # 网络通道
+├── permission.rs          # 权限管理
+├── wasm/
+│   ├── plugin_trait.rs    # 插件 trait
+│   └── wasmtime_loader.rs # WASM 加载器
+├── lib.rs                 # 框架入口
+└── prelude.rs             # 统一导出
 
-#### 4. 依赖管理（100%）
-- 依赖声明格式
-- 拓扑排序算法
-- 循环依赖检测
-- 自动依赖加载
-
-#### 5. 版本检查（100%）
-- 语义化版本解析
-- 版本比较和验证
-- 版本要求检查（>=, <=, >, <, ^, ~）
-
-#### 6. 权限控制（100%）
-- 权限模型定义
-- 权限检查接口
-- 配置文件权限声明
-- 拒绝权限支持
-
-## 当前任务
-
-### 🎯 目标
-改进 basic_pet.rs 示例，清晰展示所有新功能。
-
-### 📋 具体任务
-
-#### 1. 增强 UI 显示
-- [ ] 显示每个插件的版本号
-- [ ] 显示权限检查状态
-- [ ] 显示依赖关系
-- [ ] 显示插件加载状态
-
-#### 2. 添加交互功能
-- [ ] 按 R 键触发热重载
-- [ ] 按 I 键显示插件详细信息
-- [ ] 按 P 键测试权限控制
-
-#### 3. 改进日志输出
-- [ ] 在生命周期钩子中输出详细日志
-- [ ] 在权限检查时输出警告
-- [ ] 在依赖解析时输出加载顺序
-
-#### 4. 添加新的 UI 系统
-- [ ] 创建插件信息面板
-- [ ] 显示实时权限检查结果
-- [ ] 显示依赖图
-
-### 🔧 实现细节
-
-#### 改进 1：增强 UI 显示
-
-在 `update_ui` 函数中添加：
-```rust
-// 显示插件版本信息
-let version_text = format!("  Plugin Versions:");
-// - demo_plugin: 1.0.0
-// - stats_plugin: 1.0.0
-// - reader_plugin: 1.0.0
-
-// 显示权限状态
-let permission_text = format!("  Permissions:");
-// - demo_plugin: FULL ACCESS
-// - stats_plugin: READ/WRITE DATA
-// - reader_plugin: READ DATA (DENIED WRITE)
-
-// 显示依赖关系
-let dependency_text = format!("  Dependencies:");
-// - demo_plugin: none
-// - stats_plugin: -> demo_plugin
-// - reader_plugin: -> stats_plugin
+examples/                   # 渲染层（可选 Bevy 或 crossterm）
+├── bevy_adapter.rs        # Bevy 适配器
+├── basic_pet.rs           # Bevy 示例
+├── cli_pet.rs             # CLI/TUI 示例
+├── wasm_*/                # WASM 插件
+└── config.json            # 配置文件
 ```
 
-#### 改进 2：添加交互系统
+## 重构计划
 
-添加新的按键处理：
-```rust
-// 按 R 键热重载插件
-if keys.just_pressed(KeyCode::KeyR) {
-    info!("Hot reloading plugins...");
-    // 重新加载配置
-    // 重新加载插件
-}
+### 阶段 1：移除 src/ 中的 Bevy 依赖
 
-// 按 I 键显示插件信息
-if keys.just_pressed(KeyCode::KeyI) {
-    info!("Plugin Information:");
-    // 显示每个插件的详细信息
-}
+#### 1.1 修改 src/lib.rs
+- [x] 移除 `use bevy::prelude::*`
+- [x] 移除 `FrameworkSet` 枚举（SystemSet）
+- [x] 移除 `FrameworkPlugin` 结构体（Plugin trait）
+- [x] 移除 `configure_backend` 函数
+- [x] 保留核心模块导出
 
-// 按 P 键测试权限
-if keys.just_pressed(KeyCode::KeyP) {
-    info!("Testing permissions...");
-    // 测试读取权限
-    // 测试写入权限
-    // 显示拒绝日志
-}
+#### 1.2 修改 src/config.rs
+- [x] 移除 `#[derive(Resource)]` 宏
+- [x] 移除 `use bevy::prelude::*`
+- [x] 保持纯 Rust 实现
+
+#### 1.3 修改 src/hooks/mod.rs
+- [x] 移除 `#[derive(Resource)]` 宏
+- [x] 移除 `use bevy::prelude::*`
+- [x] 保持纯 Rust 实现
+
+#### 1.4 修改 src/network/mod.rs
+- [x] 移除 `#[derive(Resource)]` 宏
+- [x] 移除 `use bevy::prelude::*`
+- [x] 保持纯 Rust 实现
+
+#### 1.5 修改 src/wasm/bridge.rs
+- [x] 移除 `#[derive(Resource)]` 宏
+- [x] 移除 `use bevy::prelude::*`
+- [x] 保持纯 Rust 实现
+
+#### 1.6 删除 src/plugins/wasm_plugin.rs
+- [x] 删除整个文件（移到 examples/）
+
+### 阶段 2：创建 Bevy 适配器
+
+#### 2.1 创建 examples/bevy_adapter.rs
+- [x] 定义 Bevy Resource 包装器
+- [x] 实现 FrameworkPlugin
+- [x] 实现 WasmPluginBevy
+- [x] 提供核心框架到 Bevy 的转换
+
+#### 2.2 更新 examples/basic_pet.rs
+- [x] 导入 bevy_adapter.rs
+- [x] 使用新的 Resource 包装器
+- [x] 保持功能不变
+
+### 阶段 3：创建 CLI/TUI 示例
+
+#### 3.1 创建 examples/cli_pet.rs
+- [x] 使用 crossterm 实现 TUI 界面
+- [x] 调用核心框架 API
+- [x] 验证框架通用性
+
+#### 3.2 更新 Cargo.toml
+- [x] 添加 crossterm 依赖（可选）
+- [x] 添加 cli_pet 示例
+
+### 阶段 4：测试验证
+
+#### 4.1 编译测试
+- [x] 验证 src/ 独立编译
+- [x] 验证 basic_pet 示例编译
+- [x] 验证 cli_pet 示例编译
+
+#### 4.2 功能测试
+- [x] 运行所有单元测试
+- [x] 验证 Bevy 示例功能
+- [x] 验证 CLI 示例功能
+
+#### 4.3 最终验证
+- [x] 运行 `cargo check`
+- [x] 运行 `cargo test`
+- [x] 运行 `cargo clippy`
+- [x] 运行 `cargo fmt --check`
+
+## 预期效果
+
+1. **核心框架** - 纯 Rust 实现，可在任何项目中使用
+2. **渲染层分离** - Bevy、crossterm 或其他渲染系统可自由选择
+3. **向后兼容** - 现有 Bevy 示例继续工作
+4. **易于测试** - 核心逻辑与渲染逻辑分离
+
+## 验证命令
+
+```bash
+# 检查核心框架编译
+cargo check
+
+# 检查 Bevy 示例
+cargo check --example basic_pet --features wasm-plugin
+
+# 检查 CLI 示例
+cargo check --example cli_pet --features wasm-plugin
+
+# 运行测试
+cargo test
+
+# 运行 lint
+cargo clippy
+
+# 检查格式
+cargo fmt --check
+```
+src/                        # 纯 Rust 核心框架（无 Bevy 依赖）
+├── config.rs              # 配置管理
+├── dependency.rs          # 依赖解析
+├── error.rs               # 错误类型
+├── hooks.rs               # 钩子系统
+├── network.rs             # 网络通道
+├── permission.rs          # 权限管理
+├── wasm/
+│   ├── plugin_trait.rs    # 插件 trait
+│   └── wasmtime_loader.rs # WASM 加载器
+├── lib.rs                 # 框架入口
+└── prelude.rs             # 统一导出
+
+examples/                   # 渲染层（可选 Bevy 或 ratatui）
+├── bevy_adapter.rs        # Bevy 适配器
+├── basic_pet.rs           # Bevy 示例
+├── cli_pet.rs             # CLI/TUI 示例
+├── wasm_*/                # WASM 插件
+└── config.json            # 配置文件
 ```
 
-#### 改进 3：增强 setup_ui
+## 重构计划
 
-在 `setup_ui` 函数中添加详细的加载日志：
-```rust
-info!("=== Plugin Loading Order (Dependencies) ===");
-info!("1. demo_plugin (no dependencies)");
-info!("2. stats_plugin (depends on demo_plugin)");
-info!("3. reader_plugin (depends on stats_plugin)");
+### 阶段 1：移除 src/ 中的 Bevy 依赖
 
-info!("=== Plugin Versions ===");
-info!("- demo_plugin: v1.0.0");
-info!("- stats_plugin: v1.0.0");
-info!("- reader_plugin: v1.0.0");
+#### 1.1 修改 src/lib.rs
+- [x] 移除 `use bevy::prelude::*`
+- [x] 移除 `FrameworkSet` 枚举（SystemSet）
+- [x] 移除 `FrameworkPlugin` 结构体（Plugin trait）
+- [x] 移除 `configure_backend` 函数
+- [x] 保留核心模块导出
 
-info!("=== Plugin Permissions ===");
-info!("- demo_plugin: FULL ACCESS");
-info!("- stats_plugin: READ/WRITE DATA, READ CONFIG");
-info!("- reader_plugin: READ DATA ONLY");
+#### 1.2 修改 src/config.rs
+- [x] 移除 `#[derive(Resource)]` 宏
+- [x] 移除 `use bevy::prelude::*`
+- [x] 保持纯 Rust 实现
+
+#### 1.3 修改 src/hooks/mod.rs
+- [x] 移除 `#[derive(Resource)]` 宏
+- [x] 移除 `use bevy::prelude::*`
+- [x] 保持纯 Rust 实现
+
+#### 1.4 修改 src/network/mod.rs
+- [x] 移除 `#[derive(Resource)]` 宏
+- [x] 移除 `use bevy::prelude::*`
+- [x] 保持纯 Rust 实现
+
+#### 1.5 修改 src/wasm/bridge.rs
+- [x] 移除 `#[derive(Resource)]` 宏
+- [x] 移除 `use bevy::prelude::*`
+- [x] 保持纯 Rust 实现
+
+#### 1.6 删除 src/plugins/wasm_plugin.rs
+- [x] 删除整个文件（移到 examples/）
+
+### 阶段 2：创建 Bevy 适配器
+
+#### 2.1 创建 examples/bevy_adapter.rs
+- [x] 定义 Bevy Resource 包装器
+- [x] 实现 FrameworkPlugin
+- [x] 实现 WasmPluginBevy
+- [x] 提供核心框架到 Bevy 的转换
+
+#### 2.2 更新 examples/basic_pet.rs
+- [x] 导入 bevy_adapter.rs
+- [x] 使用新的 Resource 包装器
+- [x] 保持功能不变
+
+### 阶段 3：创建 CLI/TUI 示例
+
+#### 3.1 创建 examples/cli_pet.rs
+- [ ] 使用 ratatui 实现 TUI 界面
+- [ ] 调用核心框架 API
+- [ ] 验证框架通用性
+
+#### 3.2 更新 Cargo.toml
+- [ ] 添加 ratatui 依赖
+- [ ] 添加 crossterm 依赖
+- [ ] 添加 cli_pet 示例
+
+### 阶段 4：测试验证
+
+#### 4.1 编译测试
+- [ ] 验证 src/ 独立编译
+- [ ] 验证 basic_pet 示例编译
+- [ ] 验证 cli_pet 示例编译
+
+#### 4.2 功能测试
+- [ ] 运行所有单元测试
+- [ ] 验证 Bevy 示例功能
+- [ ] 验证 CLI 示例功能
+
+#### 4.3 最终验证
+- [ ] 运行 `cargo check`
+- [ ] 运行 `cargo test`
+- [ ] 运行 `cargo clippy`
+- [ ] 运行 `cargo fmt --check`
+
+## 预期效果
+
+1. **核心框架** - 纯 Rust 实现，可在任何项目中使用
+2. **渲染层分离** - Bevy、ratatui 或其他渲染系统可自由选择
+3. **向后兼容** - 现有 Bevy 示例继续工作
+4. **易于测试** - 核心逻辑与渲染逻辑分离
+
+## 验证命令
+
+```bash
+# 检查核心框架编译
+cargo check
+
+# 检查 Bevy 示例
+cargo check --example basic_pet --features wasm-plugin
+
+# 检查 CLI 示例
+cargo check --example cli_pet --features wasm-plugin
+
+# 运行测试
+cargo test
+
+# 运行 lint
+cargo clippy
+
+# 检查格式
+cargo fmt --check
 ```
-
-### 📊 测试计划
-
-1. **基本功能测试**
-   - 验证插件加载正常
-   - 验证 UI 显示正确
-   - 验证按键交互响应
-
-2. **功能展示测试**
-   - 验证版本号显示
-   - 验证权限状态显示
-   - 验证依赖关系显示
-
-3. **交互功能测试**
-   - 验证热重载功能
-   - 验证插件信息显示
-   - 验证权限测试功能
-
-### 🎯 预期效果
-
-用户运行示例后可以看到：
-1. 清晰的插件加载顺序（依赖管理）
-2. 每个插件的版本号（版本检查）
-3. 权限配置和检查状态（权限控制）
-4. 配置文件加载过程（配置系统）
-5. 生命周期钩子日志（生命周期钩子）
-
-### 📝 下一步行动
-
-1. 修改 `update_ui` 函数添加版本和权限显示
-2. 添加新的按键交互系统
-3. 改进 `setup_ui` 显示详细加载信息
-4. 添加插件信息面板系统
-5. 测试验证所有功能

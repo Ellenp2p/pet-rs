@@ -1,11 +1,10 @@
 use crate::error::FrameworkError;
-use bevy::prelude::*;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
-/// Network configuration resource.
-#[derive(Resource, Clone)]
+/// Network configuration.
+#[derive(Clone)]
 pub struct NetworkConfig {
     pub server_url: String,
     pub poll_interval_secs: f32,
@@ -22,12 +21,12 @@ impl Default for NetworkConfig {
     }
 }
 
-/// Generic bidirectional channel for bridging Bevy ECS and async network tasks.
+/// Generic bidirectional channel for bridging async network tasks.
 ///
 /// ## Usage
 ///
 /// - `send()` / `inject_incoming()` — safe to call from any context (async or sync).
-/// - `drain_outgoing()` / `drain_incoming()` — **only call from synchronous Bevy systems**.
+/// - `drain_outgoing()` / `drain_incoming()` — **only call from synchronous systems**.
 ///   These methods use `std::sync::Mutex` with very short critical sections (just `try_recv`).
 ///   Do NOT call them across an `.await`.
 ///
@@ -37,7 +36,6 @@ impl Default for NetworkConfig {
 /// `std::sync::Mutex` to guard the receiver (sync consumer side). This avoids
 /// the overhead of `tokio::sync::Mutex` while keeping the producer side usable
 /// from tokio tasks.
-#[derive(Resource)]
 pub struct NetworkChannel<T>
 where
     T: Send + Sync + 'static,

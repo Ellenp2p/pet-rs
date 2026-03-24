@@ -1,5 +1,3 @@
-use bevy::prelude::*;
-
 #[cfg(feature = "wasm-plugin")]
 use {
     super::{wasmtime_loader::WasmtimePlugin, WasmPlugin, WasmPluginId},
@@ -7,6 +5,7 @@ use {
     crate::dependency::DependencyManager,
     crate::error::FrameworkError,
     crate::permission::{Permission, PermissionManager, PluginPermissions},
+    log::{info, warn},
     std::collections::HashMap,
     std::collections::HashSet,
     std::sync::{Arc, Mutex},
@@ -15,7 +14,7 @@ use {
 /// Host-side container for registered WASM plugins.
 ///
 /// Supports hot reload: plugins with same ID are replaced, different IDs coexist.
-#[derive(Resource, Default)]
+#[derive(Default)]
 pub struct WasmPluginHost {
     #[cfg(feature = "wasm-plugin")]
     plugins: Arc<Mutex<Vec<Box<dyn WasmPlugin>>>>,

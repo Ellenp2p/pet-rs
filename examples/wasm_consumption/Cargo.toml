@@ -1,0 +1,9 @@
+[package]
+name = "wasm_consumption"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+
+[profile.release]
+panic = "abort"

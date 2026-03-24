@@ -80,5 +80,60 @@
         "denied": false
       }
     ]
+  },
+  "consumption_plugin": {
+    "enabled": true,
+    "pricing_multiplier": 0.05,
+    "discount_threshold": 10,
+    "discount_percentage": 0.10,
+    "unlock_thresholds": [0, 5, 10],
+    "dependencies": [
+      {
+        "plugin_id": "demo_plugin",
+        "version_req": ">=1.0.0"
+      }
+    ],
+    "permissions": [
+      {
+        "type": "read_data",
+        "resource": "item_*_price",
+        "denied": false
+      },
+      {
+        "type": "write_data",
+        "resource": "item_*_price",
+        "denied": false
+      },
+      {
+        "type": "read_data",
+        "resource": "item_*_unlocked",
+        "denied": false
+      },
+      {
+        "type": "write_data",
+        "resource": "item_*_unlocked",
+        "denied": false
+      },
+      {
+        "type": "read_data",
+        "resource": "total_purchases",
+        "denied": false
+      },
+      {
+        "type": "write_data",
+        "resource": "total_purchases",
+        "denied": false
+      },
+      {
+        "type": "read_data",
+        "resource": "consecutive_purchases",
+        "denied": false
+      },
+      {
+        "type": "write_data",
+        "resource": "consecutive_purchases",
+        "denied": false
+      }
+    ]
   }
 }

@@ -4,12 +4,7 @@ pub use crate::hooks::{HookContext, HookKey, HookRegistry};
 pub use crate::network::{NetworkChannel, NetworkConfig};
 
 #[cfg(feature = "wasm-plugin")]
-pub use crate::plugins::WasmPluginBevy;
-
-#[cfg(feature = "wasm-plugin")]
 pub use crate::wasm::WasmEntityId;
 
 #[cfg(feature = "wasm-plugin")]
 pub use crate::wasm::WasmPluginHost;
-
-pub use crate::{configure_backend, FrameworkPlugin, FrameworkSet};

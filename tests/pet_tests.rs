@@ -16,12 +16,7 @@ mod hook_tests {
             c.fetch_add(1, Ordering::SeqCst);
         });
 
-        registry.trigger(
-            "on_spawn",
-            &HookContext {
-                entity: bevy::prelude::Entity::from_raw(0),
-            },
-        );
+        registry.trigger("on_spawn", &HookContext { entity: 0 });
 
         assert_eq!(counter.load(Ordering::SeqCst), 1);
     }
@@ -38,12 +33,7 @@ mod hook_tests {
             });
         }
 
-        registry.trigger(
-            "on_tick",
-            &HookContext {
-                entity: bevy::prelude::Entity::from_raw(0),
-            },
-        );
+        registry.trigger("on_tick", &HookContext { entity: 0 });
 
         assert_eq!(counter.load(Ordering::SeqCst), 3);
     }
@@ -64,9 +54,7 @@ mod hook_tests {
             b2.fetch_add(10, Ordering::SeqCst);
         });
 
-        let ctx = HookContext {
-            entity: bevy::prelude::Entity::from_raw(0),
-        };
+        let ctx = HookContext { entity: 0 };
         registry.trigger("key_a", &ctx);
         registry.trigger("key_b", &ctx);
 
@@ -94,12 +82,7 @@ mod hook_tests {
             c.fetch_add(1, Ordering::SeqCst);
         });
 
-        registry.trigger(
-            "wrong_key",
-            &HookContext {
-                entity: bevy::prelude::Entity::from_raw(0),
-            },
-        );
+        registry.trigger("wrong_key", &HookContext { entity: 0 });
 
         assert_eq!(counter.load(Ordering::SeqCst), 0);
     }
@@ -108,12 +91,7 @@ mod hook_tests {
     fn test_hook_trigger_with_no_callbacks() {
         let registry = HookRegistry::default();
         // Should not panic when triggering a key with no callbacks
-        registry.trigger(
-            "nonexistent",
-            &HookContext {
-                entity: bevy::prelude::Entity::from_raw(0),
-            },
-        );
+        registry.trigger("nonexistent", &HookContext { entity: 0 });
     }
 
     #[test]

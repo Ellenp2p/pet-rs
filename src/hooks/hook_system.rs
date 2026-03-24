@@ -1,4 +1,3 @@
-use bevy::prelude::*;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -7,20 +6,20 @@ pub type HookKey = Cow<'static, str>;
 
 #[derive(Clone)]
 pub struct HookContext {
-    pub entity: Entity,
+    pub entity: u64,
 }
 
 pub type HookCallback = Arc<dyn Fn(&HookContext) + Send + Sync>;
 
 /// Registry for dynamic, string-keyed event hooks.
 ///
-/// Register hooks during plugin initialization via `ResMut<HookRegistry>`.
-/// Trigger hooks during gameplay via `Res<HookRegistry>`.
+/// Register hooks during plugin initialization.
+/// Trigger hooks during gameplay.
 ///
 /// Callbacks are wrapped in `Arc` so they can be cheaply cloned and
 /// executed after the internal lock/borrow is released, preventing
 /// deadlock if a callback recursively triggers the same hook.
-#[derive(Resource, Default)]
+#[derive(Default)]
 pub struct HookRegistry {
     hooks: HashMap<HookKey, Vec<HookCallback>>,
 }
