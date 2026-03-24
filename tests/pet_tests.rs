@@ -1,4 +1,4 @@
-use pet_rs::prelude::*;
+use agent_pet_rs::prelude::*;
 
 #[cfg(test)]
 mod hook_tests {
@@ -110,7 +110,7 @@ mod hook_tests {
 
 #[cfg(test)]
 mod network_channel_tests {
-    use pet_rs::network::NetworkChannel;
+    use agent_pet_rs::network::NetworkChannel;
 
     #[test]
     fn test_generic_channel_i32() {
@@ -187,7 +187,7 @@ mod network_channel_tests {
 
 #[cfg(test)]
 mod error_tests {
-    use pet_rs::error::FrameworkError;
+    use agent_pet_rs::error::FrameworkError;
 
     #[test]
     fn test_error_display() {
@@ -204,7 +204,7 @@ mod error_tests {
 
 #[cfg(test)]
 mod config_tests {
-    use pet_rs::network::NetworkConfig;
+    use agent_pet_rs::network::NetworkConfig;
 
     #[test]
     fn test_default_config() {

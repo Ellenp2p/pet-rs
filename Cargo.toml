@@ -1,8 +1,8 @@
 [package]
-name = "pet-rs"
+name = "agent-pet-rs"
 version = "0.1.0"
 edition = "2021"
-description = "Production-ready virtual pet framework with Bevy ECS"
+description = "Rust framework for building intelligent virtual life forms with WASM plugins"
 
 [dependencies]
 bevy = { version = "0.14" }
@@ -42,9 +42,9 @@ name = "cli_pet"
 path = "examples/cli_pet.rs"
 
 [[test]]
-name = "pet_tests"
+name = "agent_tests"
 path = "tests/pet_tests.rs"
 
 [lib]
-name = "pet_rs"
+name = "agent_pet_rs"
 path = "src/lib.rs"

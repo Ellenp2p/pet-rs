@@ -1,6 +1,6 @@
-//! CLI/TUI Pet Example using ratatui
+//! CLI/TUI Agent Example using ratatui
 //!
-//! This example demonstrates the pet-rs framework in a terminal UI
+//! This example demonstrates the agent-pet-rs framework in a terminal UI
 //! using ratatui and crossterm for a professional TUI experience.
 //!
 //! ## Usage
@@ -9,12 +9,12 @@
 //! cargo run --example cli_pet
 //! ```
 
+use agent_pet_rs::prelude::*;
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use pet_rs::prelude::*;
 use ratatui::{
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},

@@ -1,10 +1,10 @@
-//! Bevy adapter for pet-rs framework.
+//! Bevy adapter for agent-pet-rs framework.
 //!
-//! This module provides Bevy-specific wrappers for the core pet-rs types.
+//! This module provides Bevy-specific wrappers for the core agent-pet-rs types.
 //! It should be used in examples that use Bevy for rendering.
 
+use agent_pet_rs::prelude::*;
 use bevy::prelude::*;
-use pet_rs::prelude::*;
 
 // ============================================================
 // Bevy Resource Wrappers
@@ -15,23 +15,23 @@ use pet_rs::prelude::*;
 pub struct BevyHookRegistry(pub HookRegistry);
 
 impl BevyHookRegistry {
-    pub fn trigger(&self, key: &str, ctx: &pet_rs::hooks::HookContext) {
+    pub fn trigger(&self, key: &str, ctx: &agent_pet_rs::hooks::HookContext) {
         self.0.trigger(key, ctx);
     }
 
     #[allow(dead_code)]
     pub fn register(
         &mut self,
-        key: impl Into<pet_rs::hooks::HookKey>,
-        callback: pet_rs::hooks::HookCallback,
+        key: impl Into<agent_pet_rs::hooks::HookKey>,
+        callback: agent_pet_rs::hooks::HookCallback,
     ) {
         self.0.register(key, callback);
     }
 
     #[allow(dead_code)]
-    pub fn register_fn<F>(&mut self, key: impl Into<pet_rs::hooks::HookKey>, f: F)
+    pub fn register_fn<F>(&mut self, key: impl Into<agent_pet_rs::hooks::HookKey>, f: F)
     where
-        F: Fn(&pet_rs::hooks::HookContext) + Send + Sync + 'static,
+        F: Fn(&agent_pet_rs::hooks::HookContext) + Send + Sync + 'static,
     {
         self.0.register_fn(key, f);
     }

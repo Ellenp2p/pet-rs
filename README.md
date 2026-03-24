@@ -1,21 +1,24 @@
-# pet-rs
+# agent-pet-rs
 
-ECS-first plugin framework built on Bevy, with hook system, generic networking, and WASM plugin support.
+Rust framework for building intelligent virtual life forms with WASM plugins.
 
 ## Philosophy
 
-The framework provides **only infrastructure**. Domain logic (pets, economy, etc.) lives entirely in user code via the plugin system.
+The framework provides **infrastructure for creating customizable intelligent agents**. Domain logic (behaviors, interactions, etc.) lives entirely in user code via the plugin system.
 
 | Layer | Location | What it contains |
 |-------|----------|------------------|
-| Framework | `src/` | HookRegistry, NetworkChannel, FrameworkSet, WASM bridge |
-| Plugin | `examples/` | Pet components, events, systems, economy — built on framework API |
+| Framework | `src/` | HookRegistry, NetworkChannel, WASM bridge, Permission management |
+| Plugin | `examples/` | Agent components, events, systems — built on framework API |
 
 ## Quick Start
 
 ```bash
-# Run the pet demo
-cargo run --example basic_pet
+# Run the agent demo (Bevy GUI)
+cargo run --example basic_pet --features wasm-plugin
+
+# Run the agent demo (CLI/TUI)
+cargo run --example cli_pet
 
 # Build the framework library only
 cargo build
@@ -32,9 +35,15 @@ cargo clippy
 
 | Key | Action |
 |-----|--------|
-| F | Buy food (costs 10 gold, feeds pet +20 hunger) |
-| H | Heal pet (+15 health) |
+| F | Feed agent (costs 10 gold, +20 hunger) |
+| H | Heal agent (+15 health) |
 | G | Gain gold (+50) |
+| 1 | Buy Basic Food (10g) |
+| 2 | Buy Premium Food (25g) |
+| 3 | Buy Elixir (50g) |
+| R | Hot reload plugins |
+| I | Show plugin info |
+| P | Test permissions |
 
 ## Architecture
 
@@ -49,7 +58,7 @@ Plugins extend the pipeline by inserting their own `SystemSet` between framework
 ## Project Structure
 
 ```
-pet-rs/
+agent-pet-rs/
 ├── src/                          # Framework core (generic, no domain knowledge)
 │   ├── lib.rs                    # FrameworkPlugin, FrameworkSet
 │   ├── prelude.rs                # Public API exports
@@ -57,15 +66,24 @@ pet-rs/
 │   │   └── hook_system.rs        # HookRegistry with Cow<str> keys
 │   ├── network/
 │   │   └── mod.rs                # NetworkChannel<T> generic channel
-│   ├── plugins/
-│   │   └── wasm_plugin.rs        # WASM plugin Bevy integration
+│   ├── config.rs                 # Plugin configuration
+│   ├── dependency.rs             # Dependency resolution
+│   ├── permission.rs             # Permission management
 │   └── wasm/
 │       ├── plugin_trait.rs       # WasmPlugin trait
+│       ├── wasmtime_loader.rs    # WASM plugin loader
 │       └── bridge.rs             # WasmPluginHost
 ├── examples/
-│   └── basic_pet.rs              # Pet + economy demo (self-contained plugin)
+│   ├── basic_pet.rs              # Bevy GUI demo
+│   ├── cli_pet.rs                # CLI/TUI demo
+│   ├── bevy_adapter.rs           # Bevy integration adapter
+│   ├── wasm_hooks/               # Demo WASM plugin
+│   ├── wasm_stats/               # Stats WASM plugin
+│   ├── wasm_reader/              # Reader WASM plugin
+│   ├── wasm_discount/            # Discount WASM plugin
+│   └── config.json               # Plugin configuration
 ├── tests/
-│   └── pet_tests.rs              # Framework unit tests
+│   └── agent_tests.rs            # Framework unit tests
 └── .github/workflows/ci.yml     # CI: fmt + check + test
 ```
 
@@ -76,7 +94,7 @@ pet-rs/
 Dynamic, string-keyed event hooks with multiple subscribers:
 
 ```rust
-use pet_rs::prelude::*;
+use agent_pet_rs::prelude::*;
 
 // Register
 hooks.register_fn("my_hook", |ctx: &HookContext| {
@@ -133,7 +151,7 @@ See `examples/basic_pet.rs` for a complete example. Minimal structure:
 
 ```rust
 use bevy::prelude::*;
-use pet_rs::prelude::*;
+use agent_pet_rs::prelude::*;
 
 struct MyPlugin;
 

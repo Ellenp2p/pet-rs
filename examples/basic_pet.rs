@@ -11,7 +11,7 @@ use std::collections::HashMap;
 
 #[cfg(not(feature = "wasm-plugin"))]
 mod wasm_stub {
-    use pet_rs::error::FrameworkError;
+    use agent_pet_rs::error::FrameworkError;
     #[derive(Default)]
     pub struct WasmPluginHost;
     #[allow(dead_code)]
@@ -301,7 +301,7 @@ fn spawn_pet_system(
 
         hooks.trigger(
             ON_SPAWN,
-            &pet_rs::hooks::HookContext {
+            &agent_pet_rs::hooks::HookContext {
                 entity: entity.index() as u64,
             },
         );
@@ -319,7 +319,7 @@ fn feed_input_system(
             hunger.value = (hunger.value + ev.amount).clamp(0.0, hunger.max);
             hooks.trigger(
                 ON_FEED,
-                &pet_rs::hooks::HookContext {
+                &agent_pet_rs::hooks::HookContext {
                     entity: ev.entity.index() as u64,
                 },
             );
@@ -362,7 +362,7 @@ fn purchase_system(
 
         hooks.trigger(
             ON_PURCHASE,
-            &pet_rs::hooks::HookContext {
+            &agent_pet_rs::hooks::HookContext {
                 entity: ev.entity.index() as u64,
             },
         );
@@ -535,7 +535,7 @@ fn gain_system(
                 wallet.gold += ev.amount;
                 hooks.trigger(
                     ON_REWARD,
-                    &pet_rs::hooks::HookContext {
+                    &agent_pet_rs::hooks::HookContext {
                         entity: ev.entity.index() as u64,
                     },
                 );
@@ -1065,7 +1065,7 @@ fn main() {
         // Load configuration file
         let config_path = std::path::Path::new("examples/config.json");
         if config_path.exists() {
-            let config_manager = pet_rs::config::PluginConfigManager::default();
+            let config_manager = agent_pet_rs::config::PluginConfigManager::default();
             if let Err(e) = config_manager.load_from_file(config_path) {
                 log::error!("Failed to load config file: {}", e);
             } else {
