@@ -2,6 +2,7 @@
 //!
 //! 负责验证插件的完整性和安全性。
 
+#[cfg(feature = "wasm-plugin")]
 use crate::error::FrameworkError;
 
 /// 插件验证器
@@ -126,10 +127,10 @@ impl ValidationResult {
 }
 
 #[cfg(test)]
+#[cfg(feature = "wasm-plugin")]
 mod tests {
     use super::*;
 
-    #[cfg(feature = "wasm-plugin")]
     #[test]
     fn test_plugin_validator() {
         let validator = PluginValidator::new();

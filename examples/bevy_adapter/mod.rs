@@ -91,6 +91,7 @@ impl Plugin for FrameworkPlugin {
 
 /// WASM plugin support for Bevy.
 #[cfg(feature = "wasm-plugin")]
+#[allow(dead_code)]
 pub struct WasmPluginBevy;
 
 #[cfg(feature = "wasm-plugin")]

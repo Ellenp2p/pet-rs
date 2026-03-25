@@ -147,6 +147,7 @@ impl Stats {
 struct App {
     pet: PetState,
     stats: Stats,
+    #[allow(dead_code)]
     hooks: HookRegistry,
     should_quit: bool,
     last_update: Instant,

@@ -2,7 +2,9 @@
 //!
 //! 负责加载和解析插件 Manifest 文件。
 
+#[cfg(feature = "wasm-plugin")]
 use crate::error::FrameworkError;
+#[cfg(feature = "wasm-plugin")]
 use std::path::Path;
 
 /// Manifest 加载器
@@ -55,10 +57,10 @@ impl PluginManifestLoader {
 }
 
 #[cfg(test)]
+#[cfg(feature = "wasm-plugin")]
 mod tests {
     use super::*;
 
-    #[cfg(feature = "wasm-plugin")]
     #[test]
     fn test_manifest_from_json() {
         let json = r#"

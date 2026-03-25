@@ -2,7 +2,9 @@
 //!
 //! 负责发现和扫描插件。
 
+#[cfg(feature = "wasm-plugin")]
 use super::manifest::PluginManifestLoader;
+#[cfg(feature = "wasm-plugin")]
 use crate::error::FrameworkError;
 
 /// 插件发现器

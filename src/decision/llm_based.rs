@@ -70,6 +70,7 @@ pub struct LLMResponse {
 }
 
 /// LLM 驱动引擎
+#[allow(dead_code)]
 pub struct LLMEngine {
     /// 配置
     config: LLMConfig,
@@ -77,6 +78,7 @@ pub struct LLMEngine {
     prompt_template: PromptTemplate,
     /// HTTP 客户端
     #[cfg(feature = "wasm-plugin")]
+    #[allow(dead_code)]
     client: Option<reqwest::Client>,
 }
 
@@ -115,6 +117,7 @@ impl LLMEngine {
 
     /// 调用 LLM API（占位符实现）
     #[cfg(feature = "wasm-plugin")]
+    #[allow(dead_code)]
     async fn call_llm(&self, prompt: &str) -> Result<String, FrameworkError> {
         // 这里应该实际调用 LLM API
         // 目前返回一个模拟响应

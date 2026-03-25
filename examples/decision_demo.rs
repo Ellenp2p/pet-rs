@@ -13,7 +13,6 @@ use agent_pet_rs::decision::{
     Decision, DecisionContext, DecisionEngineTrait, DecisionType, HybridConfig, HybridEngine,
     HybridStrategy, LLMConfig, LLMEngine, Rule, RuleBasedEngine,
 };
-use agent_pet_rs::prelude::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🎯 Decision Engine Demo");
