@@ -15,6 +15,9 @@ pub mod context;
 pub mod decision;
 pub mod memory;
 
+// Plugin modules
+pub mod plugins;
+
 // Legacy modules
 pub mod components;
 pub mod events;

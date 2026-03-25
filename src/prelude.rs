@@ -38,9 +38,25 @@ pub use crate::communication::channel::{CLIChannel, Channel, ChannelTrait, Chann
 pub use crate::communication::message::{Message, MessageType};
 pub use crate::communication::router::{MessageHandler, MessageRouter};
 
+// Plugin modules
+pub use crate::plugins::capabilities::{Capability, CapabilityProvider, CapabilityRegistry};
+pub use crate::plugins::discovery::{DiscoveredPlugin, PluginDiscovery};
+pub use crate::plugins::lifecycle::{LifecycleEvent, LifecycleHook, PluginLifecycleManager};
+pub use crate::plugins::loader::PluginLoader;
+pub use crate::plugins::manifest::PluginManifestLoader;
+pub use crate::plugins::slots::{Slot, SlotManager, SlotRegistration};
+pub use crate::plugins::validator::{PluginValidator, ValidationResult};
+
 // WASM modules
 #[cfg(feature = "wasm-plugin")]
 pub use crate::wasm::WasmEntityId;
 
 #[cfg(feature = "wasm-plugin")]
 pub use crate::wasm::WasmPluginHost;
+
+// WASM ABI modules
+#[cfg(feature = "wasm-plugin")]
+pub use crate::wasm::abi::{
+    ConfigFieldType, ConfigSchema, HookCallContext, HookCallResult, PluginDependency,
+    PluginManifest, PluginPermission, PluginType,
+};
