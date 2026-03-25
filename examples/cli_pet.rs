@@ -158,18 +158,8 @@ struct App {
 
 impl App {
     fn new() -> Self {
-        let mut hooks = HookRegistry::default();
-        hooks.register_fn("on_spawn", |_ctx| {
-            // Hook callback - in TUI we don't print here
-        });
-        hooks.register_fn("on_feed", |_ctx| {});
-        hooks.register_fn("on_purchase", |_ctx| {});
-        hooks.register_fn("on_reward", |_ctx| {});
-
+        let hooks = HookRegistry::default();
         let pet = PetState::new("Buddy");
-
-        // Trigger spawn hook
-        hooks.trigger("on_spawn", &HookContext { entity: 0 });
 
         Self {
             pet,
@@ -242,8 +232,6 @@ impl App {
                     if self.pet.spend(final_price) {
                         self.pet.feed(20.0);
                         self.record_purchase();
-                        self.hooks
-                            .trigger("on_purchase", &HookContext { entity: 0 });
                         self.add_message(format!(
                             "🎉 {}% discount! Paid {}g",
                             discount, final_price
@@ -254,8 +242,6 @@ impl App {
                 } else if self.pet.spend(price) {
                     self.pet.feed(20.0);
                     self.record_purchase();
-                    self.hooks
-                        .trigger("on_purchase", &HookContext { entity: 0 });
                     self.add_message("Bought Basic Food! (+20 hunger)".to_string());
                 } else {
                     self.add_message("Not enough gold!".to_string());
@@ -268,8 +254,6 @@ impl App {
                     if self.pet.spend(final_price) {
                         self.pet.feed(50.0);
                         self.record_purchase();
-                        self.hooks
-                            .trigger("on_purchase", &HookContext { entity: 0 });
                         self.add_message(format!(
                             "🎉 {}% discount! Paid {}g",
                             discount, final_price
@@ -280,8 +264,6 @@ impl App {
                 } else if self.pet.spend(price) {
                     self.pet.feed(50.0);
                     self.record_purchase();
-                    self.hooks
-                        .trigger("on_purchase", &HookContext { entity: 0 });
                     self.add_message("Bought Premium Food! (+50 hunger)".to_string());
                 } else {
                     self.add_message("Not enough gold!".to_string());
@@ -294,8 +276,6 @@ impl App {
                     if self.pet.spend(final_price) {
                         self.pet.heal(30.0);
                         self.record_purchase();
-                        self.hooks
-                            .trigger("on_purchase", &HookContext { entity: 0 });
                         self.add_message(format!(
                             "🎉 {}% discount! Paid {}g",
                             discount, final_price
@@ -306,8 +286,6 @@ impl App {
                 } else if self.pet.spend(price) {
                     self.pet.heal(30.0);
                     self.record_purchase();
-                    self.hooks
-                        .trigger("on_purchase", &HookContext { entity: 0 });
                     self.add_message("Bought Elixir! (+30 health)".to_string());
                 } else {
                     self.add_message("Not enough gold!".to_string());
@@ -317,7 +295,6 @@ impl App {
                 if self.pet.spend(10) {
                     self.pet.feed(20.0);
                     self.stats.purchases += 1;
-                    self.hooks.trigger("on_feed", &HookContext { entity: 0 });
                     self.add_message("Fed pet! (+20 hunger)".to_string());
                 } else {
                     self.add_message("Not enough gold!".to_string());
@@ -331,7 +308,6 @@ impl App {
             KeyCode::Char('g') | KeyCode::Char('G') => {
                 self.pet.gain(50);
                 self.stats.gold_earned += 50;
-                self.hooks.trigger("on_reward", &HookContext { entity: 0 });
                 self.add_message("Gained 50 gold!".to_string());
             }
             _ => {}

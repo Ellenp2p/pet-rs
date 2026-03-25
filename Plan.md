@@ -1,268 +1,193 @@
-# agent-pet-rs 框架架构重构计划
+# agent-pet-rs 2.0 - WASM Agent 框架实施计划
 
 ## 项目概述
 
-agent-pet-rs 是一个用于构建智能虚拟生命的 Rust 框架，支持 WASM 插件系统。本次重构目标是将框架核心与渲染层分离，使框架可在任何渲染系统中使用。
+agent-pet-rs 是一个基于 WASM 插件的智能 Agent 框架，支持角色扮演、自主行为和插件扩展。
+
+## 核心特性
+
+- 🎭 **角色扮演** - Agent 可以有不同的性格和角色
+- 🤖 **自主行为** - Agent 可以自主决策和执行任务
+- 🔌 **插件扩展** - 通过 WASM 插件扩展能力
+- 🧠 **可选 LLM** - 支持 LLM 但不强制依赖
+- ⚡ **高性能** - Rust + WASM 带来的高性能
+- 🎮 **多场景** - 游戏角色、助手、自动化工具
 
 ## 架构设计
 
-### 核心原则
+### 核心组件
 
-1. **核心框架（src/）** - 纯 Rust 实现，不依赖任何渲染库
-2. **渲染层（examples/）** - 使用 Bevy、ratatui 或其他渲染系统
-3. **适配器模式** - 在 examples/ 中定义渲染系统的适配器
+1. **Agent Core** - Agent 核心结构和主循环
+2. **Hook System** - 28 个 Hook 点的系统
+3. **Plugin System** - WASM 插件管理
+4. **Decision Engine** - 决策引擎（规则/LLM/混合）
+5. **Memory System** - 记忆系统
+6. **Context Manager** - 上下文管理
 
 ### 目录结构
 
 ```
-src/                        # 纯 Rust 核心框架（无 Bevy 依赖）
-├── config.rs              # 配置管理
-├── dependency.rs          # 依赖解析
-├── error.rs               # 错误类型
-├── hooks.rs               # 钩子系统
-├── network.rs             # 网络通道
-├── permission.rs          # 权限管理
-├── wasm/
-│   ├── plugin_trait.rs    # 插件 trait
-│   └── wasmtime_loader.rs # WASM 加载器
-├── lib.rs                 # 框架入口
-└── prelude.rs             # 统一导出
-
-examples/                   # 渲染层（可选 Bevy 或 crossterm）
-├── bevy_adapter.rs        # Bevy 适配器
-├── basic_pet.rs           # Bevy 示例
-├── cli_pet.rs             # CLI/TUI 示例
-├── wasm_*/                # WASM 插件
-└── config.json            # 配置文件
+src/
+├── agent/              # Agent 核心
+│   ├── mod.rs
+│   ├── core.rs
+│   ├── loop.rs
+│   ├── personality.rs
+│   └── role.rs
+├── hooks/              # Hook 系统
+│   ├── mod.rs
+│   ├── points.rs
+│   ├── runner.rs
+│   ├── registry.rs
+│   └── context.rs
+├── plugins/            # 插件系统
+│   ├── mod.rs
+│   ├── loader.rs
+│   ├── discovery.rs
+│   ├── validator.rs
+│   ├── lifecycle.rs
+│   ├── slots.rs
+│   ├── capabilities.rs
+│   └── manifest.rs
+├── wasm/               # WASM 系统
+│   ├── mod.rs
+│   ├── abi.rs
+│   ├── wasmtime_loader.rs
+│   ├── sandbox.rs
+│   └── host_functions.rs
+├── decision/           # 决策引擎
+│   ├── mod.rs
+│   ├── engine.rs
+│   ├── rule_based.rs
+│   ├── llm_based.rs
+│   └── hybrid.rs
+├── memory/             # 记忆系统
+│   ├── mod.rs
+│   ├── short_term.rs
+│   ├── long_term.rs
+│   ├── working.rs
+│   └── compaction.rs
+├── context/            # 上下文管理
+│   ├── mod.rs
+│   ├── builder.rs
+│   └── window.rs
+├── communication/      # 通信层
+│   ├── mod.rs
+│   ├── channel.rs
+│   ├── message.rs
+│   └── router.rs
+├── config.rs
+├── dependency.rs
+├── error.rs
+├── permission.rs
+├── lib.rs
+└── prelude.rs
 ```
 
-## 重构计划
+## 实施阶段
 
-### 阶段 1：移除 src/ 中的 Bevy 依赖
+### Phase 1: 核心框架 (3-4 天)
+- [x] 创建目录结构
+- [ ] 实现 Agent 核心结构
+- [ ] 实现 28 个 Hook 点
+- [ ] 实现 Hook 注册和执行器
+- [ ] 实现优先级系统
+- [ ] 编写测试
 
-#### 1.1 修改 src/lib.rs
-- [x] 移除 `use bevy::prelude::*`
-- [x] 移除 `FrameworkSet` 枚举（SystemSet）
-- [x] 移除 `FrameworkPlugin` 结构体（Plugin trait）
-- [x] 移除 `configure_backend` 函数
-- [x] 保留核心模块导出
+### Phase 2: WASM 插件系统 (4-5 天)
+- [ ] 定义完整 WASM ABI
+- [ ] 实现插件加载/卸载
+- [ ] 实现沙箱安全
+- [ ] 实现热重载
+- [ ] 实现宿主函数
+- [ ] 编写测试
 
-#### 1.2 修改 src/config.rs
-- [x] 移除 `#[derive(Resource)]` 宏
-- [x] 移除 `use bevy::prelude::*`
-- [x] 保持纯 Rust 实现
+### Phase 3: 决策引擎 (2-3 天)
+- [ ] 实现规则引擎
+- [ ] 实现 LLM 引擎（可选）
+- [ ] 实现混合引擎
+- [ ] 实现决策上下文
+- [ ] 编写测试
 
-#### 1.3 修改 src/hooks/mod.rs
-- [x] 移除 `#[derive(Resource)]` 宏
-- [x] 移除 `use bevy::prelude::*`
-- [x] 保持纯 Rust 实现
+### Phase 4: 记忆系统 (2-3 天)
+- [ ] 实现短期记忆
+- [ ] 实现长期记忆
+- [ ] 实现工作记忆
+- [ ] 实现记忆压缩
+- [ ] 编写测试
 
-#### 1.4 修改 src/network/mod.rs
-- [x] 移除 `#[derive(Resource)]` 宏
-- [x] 移除 `use bevy::prelude::*`
-- [x] 保持纯 Rust 实现
+### Phase 5: 插件管理 (2-3 天)
+- [ ] 实现 Slot 系统
+- [ ] 实现 Capability 模型
+- [ ] 实现生命周期管理
+- [ ] 实现插件发现
+- [ ] 编写测试
 
-#### 1.5 修改 src/wasm/bridge.rs
-- [x] 移除 `#[derive(Resource)]` 宏
-- [x] 移除 `use bevy::prelude::*`
-- [x] 保持纯 Rust 实现
+### Phase 6: 示例和文档 (3-4 天)
+- [ ] 创建示例插件（5 个）
+- [ ] 创建示例 Agent（5 个）
+- [ ] 编写文档
+- [ ] 编写教程
 
-#### 1.6 删除 src/plugins/wasm_plugin.rs
-- [x] 删除整个文件（移到 examples/）
+### Phase 7: 测试和优化 (2-3 天)
+- [ ] 集成测试
+- [ ] 性能测试
+- [ ] 安全测试
+- [ ] 文档完善
 
-### 阶段 2：创建 Bevy 适配器
+## Hook 系统设计 (28 个 Hook 点)
 
-#### 2.1 创建 examples/bevy_adapter.rs
-- [x] 定义 Bevy Resource 包装器
-- [x] 实现 FrameworkPlugin
-- [x] 实现 WasmPluginBevy
-- [x] 提供核心框架到 Bevy 的转换
+### 输入处理层 (3 个)
+1. `on_input_received` - 输入到达时
+2. `before_input_parse` - 解析输入前
+3. `after_input_parse` - 解析输入后
 
-#### 2.2 更新 examples/basic_pet.rs
-- [x] 导入 bevy_adapter.rs
-- [x] 使用新的 Resource 包装器
-- [x] 保持功能不变
+### 上下文构建层 (4 个)
+4. `before_context_build` - 构建上下文前
+5. `after_context_build` - 构建上下文后
+6. `before_memory_load` - 加载记忆前
+7. `after_memory_load` - 加载记忆后
 
-### 阶段 3：创建 CLI/TUI 示例
+### 决策层 (4 个)
+8. `before_decision` - 决策前
+9. `after_decision` - 决策后
+10. `before_llm_call` - LLM 调用前
+11. `after_llm_call` - LLM 调用后
 
-#### 3.1 创建 examples/cli_pet.rs
-- [x] 使用 crossterm 实现 TUI 界面
-- [x] 调用核心框架 API
-- [x] 验证框架通用性
+### 动作执行层 (4 个)
+12. `before_action` - 动作执行前
+13. `after_action` - 动作执行后
+14. `before_tool_call` - 工具调用前
+15. `after_tool_call` - 工具调用后
 
-#### 3.2 更新 Cargo.toml
-- [x] 添加 crossterm 依赖（可选）
-- [x] 添加 cli_pet 示例
+### 输出生成层 (3 个)
+16. `before_output` - 生成输出前
+17. `after_output` - 生成输出后
+18. `before_response` - 发送响应前
 
-### 阶段 4：测试验证
+### 记忆管理层 (3 个)
+19. `before_memory_write` - 写入记忆前
+20. `after_memory_write` - 写入记忆后
+21. `before_memory_compact` - 记忆压缩前
 
-#### 4.1 编译测试
-- [x] 验证 src/ 独立编译
-- [x] 验证 basic_pet 示例编译
-- [x] 验证 cli_pet 示例编译
+### 角色/人格层 (3 个)
+22. `before_role_apply` - 应用角色前
+23. `after_role_apply` - 应用角色后
+24. `on_personality_change` - 人格变化时
 
-#### 4.2 功能测试
-- [x] 运行所有单元测试
-- [x] 验证 Bevy 示例功能
-- [x] 验证 CLI 示例功能
+### 生命周期层 (4 个)
+25. `on_agent_start` - Agent 启动时
+26. `on_agent_stop` - Agent 停止时
+27. `on_session_start` - 会话开始时
+28. `on_session_end` - 会话结束时
 
-#### 4.3 最终验证
-- [x] 运行 `cargo check`
-- [x] 运行 `cargo test`
-- [x] 运行 `cargo clippy`
-- [x] 运行 `cargo fmt --check`
+## 技术选型
 
-## 预期效果
-
-1. **核心框架** - 纯 Rust 实现，可在任何项目中使用
-2. **渲染层分离** - Bevy、crossterm 或其他渲染系统可自由选择
-3. **向后兼容** - 现有 Bevy 示例继续工作
-4. **易于测试** - 核心逻辑与渲染逻辑分离
-
-## 验证命令
-
-```bash
-# 检查核心框架编译
-cargo check
-
-# 检查 Bevy 示例
-cargo check --example basic_pet --features wasm-plugin
-
-# 检查 CLI 示例
-cargo check --example cli_pet --features wasm-plugin
-
-# 运行测试
-cargo test
-
-# 运行 lint
-cargo clippy
-
-# 检查格式
-cargo fmt --check
-```
-src/                        # 纯 Rust 核心框架（无 Bevy 依赖）
-├── config.rs              # 配置管理
-├── dependency.rs          # 依赖解析
-├── error.rs               # 错误类型
-├── hooks.rs               # 钩子系统
-├── network.rs             # 网络通道
-├── permission.rs          # 权限管理
-├── wasm/
-│   ├── plugin_trait.rs    # 插件 trait
-│   └── wasmtime_loader.rs # WASM 加载器
-├── lib.rs                 # 框架入口
-└── prelude.rs             # 统一导出
-
-examples/                   # 渲染层（可选 Bevy 或 ratatui）
-├── bevy_adapter.rs        # Bevy 适配器
-├── basic_pet.rs           # Bevy 示例
-├── cli_pet.rs             # CLI/TUI 示例
-├── wasm_*/                # WASM 插件
-└── config.json            # 配置文件
-```
-
-## 重构计划
-
-### 阶段 1：移除 src/ 中的 Bevy 依赖
-
-#### 1.1 修改 src/lib.rs
-- [x] 移除 `use bevy::prelude::*`
-- [x] 移除 `FrameworkSet` 枚举（SystemSet）
-- [x] 移除 `FrameworkPlugin` 结构体（Plugin trait）
-- [x] 移除 `configure_backend` 函数
-- [x] 保留核心模块导出
-
-#### 1.2 修改 src/config.rs
-- [x] 移除 `#[derive(Resource)]` 宏
-- [x] 移除 `use bevy::prelude::*`
-- [x] 保持纯 Rust 实现
-
-#### 1.3 修改 src/hooks/mod.rs
-- [x] 移除 `#[derive(Resource)]` 宏
-- [x] 移除 `use bevy::prelude::*`
-- [x] 保持纯 Rust 实现
-
-#### 1.4 修改 src/network/mod.rs
-- [x] 移除 `#[derive(Resource)]` 宏
-- [x] 移除 `use bevy::prelude::*`
-- [x] 保持纯 Rust 实现
-
-#### 1.5 修改 src/wasm/bridge.rs
-- [x] 移除 `#[derive(Resource)]` 宏
-- [x] 移除 `use bevy::prelude::*`
-- [x] 保持纯 Rust 实现
-
-#### 1.6 删除 src/plugins/wasm_plugin.rs
-- [x] 删除整个文件（移到 examples/）
-
-### 阶段 2：创建 Bevy 适配器
-
-#### 2.1 创建 examples/bevy_adapter.rs
-- [x] 定义 Bevy Resource 包装器
-- [x] 实现 FrameworkPlugin
-- [x] 实现 WasmPluginBevy
-- [x] 提供核心框架到 Bevy 的转换
-
-#### 2.2 更新 examples/basic_pet.rs
-- [x] 导入 bevy_adapter.rs
-- [x] 使用新的 Resource 包装器
-- [x] 保持功能不变
-
-### 阶段 3：创建 CLI/TUI 示例
-
-#### 3.1 创建 examples/cli_pet.rs
-- [ ] 使用 ratatui 实现 TUI 界面
-- [ ] 调用核心框架 API
-- [ ] 验证框架通用性
-
-#### 3.2 更新 Cargo.toml
-- [ ] 添加 ratatui 依赖
-- [ ] 添加 crossterm 依赖
-- [ ] 添加 cli_pet 示例
-
-### 阶段 4：测试验证
-
-#### 4.1 编译测试
-- [ ] 验证 src/ 独立编译
-- [ ] 验证 basic_pet 示例编译
-- [ ] 验证 cli_pet 示例编译
-
-#### 4.2 功能测试
-- [ ] 运行所有单元测试
-- [ ] 验证 Bevy 示例功能
-- [ ] 验证 CLI 示例功能
-
-#### 4.3 最终验证
-- [ ] 运行 `cargo check`
-- [ ] 运行 `cargo test`
-- [ ] 运行 `cargo clippy`
-- [ ] 运行 `cargo fmt --check`
-
-## 预期效果
-
-1. **核心框架** - 纯 Rust 实现，可在任何项目中使用
-2. **渲染层分离** - Bevy、ratatui 或其他渲染系统可自由选择
-3. **向后兼容** - 现有 Bevy 示例继续工作
-4. **易于测试** - 核心逻辑与渲染逻辑分离
-
-## 验证命令
-
-```bash
-# 检查核心框架编译
-cargo check
-
-# 检查 Bevy 示例
-cargo check --example basic_pet --features wasm-plugin
-
-# 检查 CLI 示例
-cargo check --example cli_pet --features wasm-plugin
-
-# 运行测试
-cargo test
-
-# 运行 lint
-cargo clippy
-
-# 检查格式
-cargo fmt --check
-```
+| 组件 | 选择 |
+|------|------|
+| WASM 运行时 | wasmtime |
+| LLM 客户端 | reqwest + 自定义 |
+| 序列化 | serde + serde_json |
+| 异步运行时 | tokio |
+| 日志 | tracing |
+| 错误处理 | thiserror + anyhow |

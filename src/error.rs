@@ -20,4 +20,8 @@ pub enum FrameworkError {
     /// Failed to unload WASM plugin.
     #[error("WASM unload error: {0}")]
     WasmUnload(String),
+
+    /// Other error.
+    #[error("{0}")]
+    Other(String),
 }

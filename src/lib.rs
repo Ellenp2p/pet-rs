@@ -1,5 +1,6 @@
 #![allow(clippy::type_complexity)]
 
+// Core modules
 pub mod config;
 pub mod dependency;
 pub mod error;
@@ -7,6 +8,14 @@ pub mod hooks;
 pub mod network;
 pub mod permission;
 
+// Agent modules
+pub mod agent;
+pub mod communication;
+pub mod context;
+pub mod decision;
+pub mod memory;
+
+// Legacy modules
 pub mod components;
 pub mod events;
 pub mod systems;

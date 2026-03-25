@@ -299,11 +299,12 @@ fn spawn_pet_system(
             ))
             .id();
 
-        hooks.trigger(
+        let _ = hooks.trigger(
             ON_SPAWN,
-            &agent_pet_rs::hooks::HookContext {
-                entity: entity.index() as u64,
-            },
+            &agent_pet_rs::hooks::HookContext::new(
+                agent_pet_rs::hooks::HookPoint::OnInputReceived,
+                entity.index().to_string(),
+            ),
         );
         info!("Spawned pet '{}'", ev.name);
     }
@@ -317,11 +318,12 @@ fn feed_input_system(
     for ev in events.read() {
         if let Ok((mut hunger, _wallet)) = pet_query.get_mut(ev.entity) {
             hunger.value = (hunger.value + ev.amount).clamp(0.0, hunger.max);
-            hooks.trigger(
+            let _ = hooks.trigger(
                 ON_FEED,
-                &agent_pet_rs::hooks::HookContext {
-                    entity: ev.entity.index() as u64,
-                },
+                &agent_pet_rs::hooks::HookContext::new(
+                    agent_pet_rs::hooks::HookPoint::BeforeAction,
+                    ev.entity.index().to_string(),
+                ),
             );
             info!("Fed {:?}: hunger = {:.0}", ev.entity, hunger.value);
         }
@@ -360,11 +362,12 @@ fn purchase_system(
             });
         }
 
-        hooks.trigger(
+        let _ = hooks.trigger(
             ON_PURCHASE,
-            &agent_pet_rs::hooks::HookContext {
-                entity: ev.entity.index() as u64,
-            },
+            &agent_pet_rs::hooks::HookContext::new(
+                agent_pet_rs::hooks::HookPoint::BeforeAction,
+                ev.entity.index().to_string(),
+            ),
         );
         info!("Purchase '{}' by {:?}", ev.item, ev.entity);
     }
@@ -533,11 +536,12 @@ fn gain_system(
         if let Ok(mut wallet) = pet_query.get_mut(ev.entity) {
             if ev.currency == "gold" {
                 wallet.gold += ev.amount;
-                hooks.trigger(
+                let _ = hooks.trigger(
                     ON_REWARD,
-                    &agent_pet_rs::hooks::HookContext {
-                        entity: ev.entity.index() as u64,
-                    },
+                    &agent_pet_rs::hooks::HookContext::new(
+                        agent_pet_rs::hooks::HookPoint::BeforeAction,
+                        ev.entity.index().to_string(),
+                    ),
                 );
                 info!("Gained {} gold on {:?}", ev.amount, ev.entity);
             }

@@ -15,25 +15,23 @@ use bevy::prelude::*;
 pub struct BevyHookRegistry(pub HookRegistry);
 
 impl BevyHookRegistry {
-    pub fn trigger(&self, key: &str, ctx: &agent_pet_rs::hooks::HookContext) {
-        self.0.trigger(key, ctx);
+    pub fn trigger(
+        &self,
+        key: &str,
+        ctx: &agent_pet_rs::hooks::HookContext,
+    ) -> Result<(), FrameworkError> {
+        self.0.trigger(key, ctx)?;
+        Ok(())
     }
 
     #[allow(dead_code)]
     pub fn register(
         &mut self,
-        key: impl Into<agent_pet_rs::hooks::HookKey>,
-        callback: agent_pet_rs::hooks::HookCallback,
-    ) {
-        self.0.register(key, callback);
-    }
-
-    #[allow(dead_code)]
-    pub fn register_fn<F>(&mut self, key: impl Into<agent_pet_rs::hooks::HookKey>, f: F)
-    where
-        F: Fn(&agent_pet_rs::hooks::HookContext) + Send + Sync + 'static,
-    {
-        self.0.register_fn(key, f);
+        hook_point: HookPoint,
+        priority: i32,
+        callback: agent_pet_rs::hooks::registry::HookCallback,
+    ) -> Result<(), FrameworkError> {
+        self.0.register(hook_point, priority, callback)
     }
 }
 
