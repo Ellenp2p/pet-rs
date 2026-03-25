@@ -78,10 +78,7 @@ impl PluginLifecycleManager {
 
     /// 注册生命周期回调
     pub fn register_callback(&mut self, hook: LifecycleHook, callback: LifecycleCallback) {
-        self.callbacks
-            .entry(hook)
-            .or_insert_with(Vec::new)
-            .push(callback);
+        self.callbacks.entry(hook).or_default().push(callback);
     }
 
     /// 触发生命周期事件

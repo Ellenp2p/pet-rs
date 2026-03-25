@@ -2,7 +2,6 @@
 //!
 //! 负责加载和解析插件 Manifest 文件。
 
-
 /// Manifest 加载器
 pub struct PluginManifestLoader;
 

@@ -109,10 +109,7 @@ impl CapabilityRegistry {
         // 克隆 capability 以便在 entry 之后还能使用
         let capability_clone = capability.clone();
 
-        self.providers
-            .entry(capability)
-            .or_insert_with(Vec::new)
-            .push(provider);
+        self.providers.entry(capability).or_default().push(provider);
 
         // 按优先级排序
         if let Some(providers) = self.providers.get_mut(&capability_clone) {

@@ -2,7 +2,6 @@
 //!
 //! 负责发现和扫描插件。
 
-
 /// 插件发现器
 pub struct PluginDiscovery {
     /// 搜索路径
