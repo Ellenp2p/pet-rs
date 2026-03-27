@@ -69,10 +69,11 @@ fn render_pet(f: &mut Frame, area: ratatui::layout::Rect, app: &App) {
         .constraints([
             Constraint::Length(3), // 位置标签
             Constraint::Min(5),    // 小狗显示
+            Constraint::Length(4), // 提供商信息
         ])
         .split(area);
 
-    // 位置标签 - 使用字符串向量
+    // 位置标签
     let locations = Location::all();
     let titles: Vec<String> = locations
         .iter()
@@ -110,6 +111,23 @@ fn render_pet(f: &mut Frame, area: ratatui::layout::Rect, app: &App) {
         .style(Style::default().fg(Color::White));
 
     f.render_widget(pet_paragraph, chunks[1]);
+
+    // 提供商信息
+    let provider_info = vec![
+        Line::from(vec![
+            Span::styled("🤖 ", Style::default().fg(Color::White)),
+            Span::styled(app.provider_status(), Style::default().fg(Color::Cyan)),
+        ]),
+        Line::from(vec![
+            Span::styled("📊 ", Style::default().fg(Color::White)),
+            Span::styled(app.usage_stats(), Style::default().fg(Color::Green)),
+        ]),
+    ];
+
+    let provider_paragraph =
+        Paragraph::new(provider_info).block(Block::default().title("AI").borders(Borders::ALL));
+
+    f.render_widget(provider_paragraph, chunks[2]);
 }
 
 /// 渲染对话历史

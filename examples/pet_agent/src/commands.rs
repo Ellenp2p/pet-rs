@@ -1,43 +1,30 @@
 //! 命令处理模块
-//!
-//! 处理用户输入的命令。
 
 use crate::app::App;
 
-/// 命令类型
 pub enum Command {
-    /// 显示帮助
     Help,
-    /// 显示状态
     Status,
-    /// 切换位置
+    Stats,
     Location,
-    /// 查看记忆
     Memory,
-    /// 清屏
     Clear,
-    /// 退出
     Quit,
-    /// 设置 API Key
-    SetApiKey(String),
-    /// 设置动画速度
-    SetSpeed(u64),
-    /// 喂食
     Feed,
-    /// 玩耍
     Play,
-    /// 休息
     Rest,
-    /// 探索
     Explore,
-    /// 未知命令
+    ProviderList,
+    ProviderSwitch(String),
+    ProviderTest,
+    ModelList,
+    ModelSwitch(String),
+    Export(String),
     Unknown(String),
 }
 
-/// 解析命令
 pub fn parse_command(input: &str) -> Command {
     let input = input.trim();
-
     if !input.starts_with('/') {
         return Command::Unknown(input.to_string());
     }
@@ -49,115 +36,177 @@ pub fn parse_command(input: &str) -> Command {
     match cmd.as_str() {
         "help" | "h" | "?" => Command::Help,
         "status" | "s" => Command::Status,
+        "stats" => Command::Stats,
         "location" | "loc" | "l" => Command::Location,
         "memory" | "mem" | "m" => Command::Memory,
         "clear" | "c" => Command::Clear,
         "quit" | "q" | "exit" => Command::Quit,
-        "apikey" | "key" => Command::SetApiKey(args.to_string()),
-        "speed" => {
-            if let Ok(speed) = args.parse::<u64>() {
-                Command::SetSpeed(speed)
-            } else {
-                Command::Unknown(input.to_string())
-            }
-        }
         "feed" | "f" => Command::Feed,
         "play" | "p" => Command::Play,
         "rest" | "r" => Command::Rest,
         "explore" | "e" => Command::Explore,
+        "provider" => {
+            let sub: Vec<&str> = args.splitn(2, ' ').collect();
+            match sub[0].to_lowercase().as_str() {
+                "list" => Command::ProviderList,
+                "switch" if sub.len() > 1 => Command::ProviderSwitch(sub[1].to_string()),
+                "test" => Command::ProviderTest,
+                _ => Command::ProviderList,
+            }
+        }
+        "model" => {
+            let sub: Vec<&str> = args.splitn(2, ' ').collect();
+            match sub[0].to_lowercase().as_str() {
+                "list" => Command::ModelList,
+                "switch" if sub.len() > 1 => Command::ModelSwitch(sub[1].to_string()),
+                _ => Command::ModelList,
+            }
+        }
+        "export" => Command::Export(args.to_string()),
         _ => Command::Unknown(input.to_string()),
     }
 }
 
-/// 执行命令
 pub async fn execute_command(app: &mut App, command: Command) -> String {
     match command {
         Command::Help => r#"
-可用命令:
-  /help, /h, /?       - 显示帮助
-  /status, /s         - 显示状态
-  /location, /loc, /l - 切换位置
-  /memory, /mem, /m   - 查看记忆
-  /clear, /c          - 清空消息
-  /quit, /q, /exit    - 退出
-  /apikey <key>       - 设置 API Key
-  /speed <ms>         - 设置动画速度 (默认 200)
-  /feed, /f           - 喂食
-  /play, /p           - 玩耍
-  /rest, /r           - 休息
-  /explore, /e        - 探索
+命令:
+  /help              显示帮助
+  /status            显示状态
+  /stats             显示费用统计
+  /location          切换位置
+  /memory            查看记忆
+  /clear             清空消息
+  /quit              退出
+  /feed              喂食
+  /play              玩耍
+  /rest              休息
+  /explore           探索
+
+提供商:
+  /provider list     显示提供商
+  /provider switch X 切换提供商
+  /provider test     测试连接
+
+模型:
+  /model list        显示模型
+  /model switch X    切换模型
+
+导出:
+  /export json       导出 JSON
+  /export csv        导出 CSV
 
 快捷键:
-  F1 - 喂食
-  F2 - 玩耍
-  F3 - 休息
-  F4 - 探索
-  Tab - 切换位置
-  Esc - 退出
-"#
-        .to_string(),
-        Command::Status => app.status_summary(),
+  F1-F4  动作
+  Tab    切换位置
+  Esc    退出
+"#.to_string(),
+
+        Command::Status => {
+            let provider = app.provider_status();
+            format!(
+                "📍 {} {} | ⚡ {:.0}% | 😊 {:.0}%\n🤖 {}\n🧠 {}",
+                app.pet.location.emoji(), app.pet.location.name(),
+                app.pet.energy, app.pet.happiness,
+                provider, app.memory.summary()
+            )
+        }
+
+        Command::Stats => {
+            format!("💰 费用统计\n{}", app.usage_stats())
+        }
+
         Command::Location => {
             app.switch_location();
-            format!(
-                "切换到: {} {}",
-                app.pet.location.emoji(),
-                app.pet.location.name()
-            )
+            format!("切换到: {} {}", app.pet.location.emoji(), app.pet.location.name())
         }
+
         Command::Memory => {
-            format!(
-                "记忆状态:\n\
-                 - 对话数量: {}\n\
-                 - 偏好数量: {}\n\
-                 - 知识数量: {}\n\
-                 - 待办任务: {}",
+            format!("记忆:\n  对话: {}\n  偏好: {}\n  知识: {}",
                 app.memory.conversations.len(),
                 app.memory.preferences.len(),
-                app.memory.knowledge.len(),
-                app.memory.pending_task_count()
+                app.memory.knowledge.len()
             )
         }
+
         Command::Clear => {
             app.clear_messages();
             "消息已清空".to_string()
         }
+
         Command::Quit => {
             app.should_quit = true;
             "再见！".to_string()
         }
-        Command::SetApiKey(key) => {
-            if key.is_empty() {
-                "请提供 API Key: /apikey <your_key>".to_string()
-            } else {
-                match app.set_api_key(&key) {
-                    Ok(_) => "API Key 已保存".to_string(),
-                    Err(e) => format!("保存失败: {}", e),
-                }
-            }
-        }
-        Command::SetSpeed(speed) => {
-            app.animation.set_speed(speed);
-            format!("动画速度设置为 {}ms", speed)
-        }
+
         Command::Feed => {
             app.feed();
             format!("喂了 {}", app.pet.name)
         }
+
         Command::Play => {
             app.play();
             format!("和 {} 玩耍", app.pet.name)
         }
+
         Command::Rest => {
             app.rest();
             format!("{} 在休息", app.pet.name)
         }
+
         Command::Explore => {
             app.explore();
             format!("{} 在探索", app.pet.name)
         }
+
+        Command::ProviderList => {
+            let names: Vec<&str> = app.config.ai.switch_order.iter().map(|s| s.as_str()).collect();
+            let current = app.provider_status();
+            format!("提供商:\n  当前: {}\n  顺序: {}", current, names.join(" → "))
+        }
+
+        Command::ProviderSwitch(name) => {
+            if let Some(ref mut pm) = app.provider_manager {
+                match pm.switch_provider(&name) {
+                    Ok(_) => format!("已切换到 {}", name),
+                    Err(e) => format!("切换失败: {}", e),
+                }
+            } else {
+                "未配置提供商".to_string()
+            }
+        }
+
+        Command::ProviderTest => {
+            "测试连接... (功能待实现)".to_string()
+        }
+
+        Command::ModelList => {
+            let current = app.provider_status();
+            format!("当前模型: {}\n使用 /model switch <model> 切换", current)
+        }
+
+        Command::ModelSwitch(_model) => {
+            "切换模型功能待实现".to_string()
+        }
+
+        Command::Export(format) => {
+            match app.export_usage(&format) {
+                Ok(data) => {
+                    let path = dirs::home_dir().unwrap_or_default()
+                        .join(".pet_agent")
+                        .join(format!("usage_export.{}", format));
+                    if std::fs::write(&path, &data).is_ok() {
+                        format!("已导出到 {:?}", path)
+                    } else {
+                        "导出失败".to_string()
+                    }
+                }
+                Err(e) => format!("导出错误: {}", e),
+            }
+        }
+
         Command::Unknown(cmd) => {
-            format!("未知命令: {} (输入 /help 查看帮助)", cmd)
+            format!("未知命令: {} (输入 /help)", cmd)
         }
     }
 }

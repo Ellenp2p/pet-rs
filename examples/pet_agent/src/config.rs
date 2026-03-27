@@ -1,74 +1,67 @@
 //! 配置管理模块
-//!
-//! 管理 API Key、模型、记忆路径等配置。
 
+use crate::ai::budget::BudgetConfig;
+use crate::ai::provider::ProviderConfig;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 /// 应用配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
-    /// OpenRouter API Key
-    pub api_key: String,
-    /// AI 模型
-    pub model: String,
-    /// 记忆文件路径
-    pub memory_path: PathBuf,
-    /// 窗口大小
-    pub window_size: WindowSize,
-    /// 小狗大小
-    pub dog_size: DogSize,
-    /// 动画速度 (毫秒)
-    pub animation_speed: u64,
+    pub settings: Settings,
+    pub ai: AIConfig,
 }
 
-/// 窗口大小
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WindowSize {
-    pub width: u16,
-    pub height: u16,
+pub struct Settings {
+    pub memory_path: PathBuf,
+    pub window_width: u16,
+    pub window_height: u16,
+    pub animation_speed: u64,
+    pub dog_size: DogSize,
 }
 
-/// 小狗大小
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AIConfig {
+    pub auto_switch: bool,
+    pub switch_order: Vec<String>,
+    pub providers: Vec<ProviderConfig>,
+    pub budget: BudgetConfig,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub enum DogSize {
-    /// 小 (5 行)
     Small,
-    /// 中 (7 行)
     Medium,
-    /// 大 (10 行)
     Large,
-}
-
-impl DogSize {
-    pub fn lines(&self) -> usize {
-        match self {
-            DogSize::Small => 5,
-            DogSize::Medium => 7,
-            DogSize::Large => 10,
-        }
-    }
 }
 
 impl Default for Config {
     fn default() -> Self {
         let home = dirs::home_dir().unwrap_or_default();
         Self {
-            api_key: String::new(),
-            model: "google/gemma-3-27b-it:free".to_string(),
-            memory_path: home.join(".pet_agent").join("memory.json"),
-            window_size: WindowSize {
-                width: 80,
-                height: 24,
+            settings: Settings {
+                memory_path: home.join(".pet_agent").join("memory.json"),
+                window_width: 80,
+                window_height: 24,
+                animation_speed: 200,
+                dog_size: DogSize::Medium,
             },
-            dog_size: DogSize::Medium,
-            animation_speed: 200,
+            ai: AIConfig {
+                auto_switch: true,
+                switch_order: vec![
+                    "openrouter".to_string(),
+                    "openai".to_string(),
+                    "ollama".to_string(),
+                ],
+                providers: Vec::new(),
+                budget: BudgetConfig::default(),
+            },
         }
     }
 }
 
 impl Config {
-    /// 获取配置文件路径
     pub fn config_path() -> PathBuf {
         dirs::config_dir()
             .unwrap_or_default()
@@ -76,7 +69,6 @@ impl Config {
             .join("config.toml")
     }
 
-    /// 加载配置
     pub fn load() -> anyhow::Result<Self> {
         let path = Self::config_path();
         if path.exists() {
@@ -88,7 +80,6 @@ impl Config {
         }
     }
 
-    /// 保存配置
     pub fn save(&self) -> anyhow::Result<()> {
         let path = Self::config_path();
         if let Some(parent) = path.parent() {
@@ -99,8 +90,23 @@ impl Config {
         Ok(())
     }
 
-    /// 检查是否需要配置
     pub fn needs_setup(&self) -> bool {
-        self.api_key.is_empty()
+        self.ai.providers.is_empty()
+            || self
+                .ai
+                .providers
+                .iter()
+                .all(|p: &ProviderConfig| p.api_key().is_empty() || !p.enabled)
+    }
+
+    pub fn memory_path(&self) -> PathBuf {
+        self.settings.memory_path.clone()
+    }
+
+    pub fn usage_path(&self) -> PathBuf {
+        dirs::home_dir()
+            .unwrap_or_default()
+            .join(".pet_agent")
+            .join("usage.json")
     }
 }

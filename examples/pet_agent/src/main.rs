@@ -49,8 +49,14 @@ async fn main() -> anyhow::Result<()> {
             return Ok(());
         }
 
-        app.set_api_key(api_key)?;
-        println!("API Key 已保存！启动宠物...\n");
+        // 创建提供商配置
+        let provider_config = crate::ai::provider::ProviderConfig::new(
+            crate::ai::provider::ProviderType::OpenRouter,
+            api_key,
+        );
+        app.config.ai.providers.push(provider_config);
+        app.config.save()?;
+        println!("配置已保存！启动宠物...\n");
     }
 
     // 设置终端
@@ -90,7 +96,7 @@ async fn run_app(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     app: &mut app::App,
 ) -> anyhow::Result<()> {
-    let event_handler = event::EventHandler::new(app.config.animation_speed);
+    let event_handler = event::EventHandler::new(app.config.settings.animation_speed);
 
     // 添加欢迎消息
     app.messages.push(app::DisplayMessage::system(&format!(
