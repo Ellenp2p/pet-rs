@@ -131,6 +131,8 @@ impl Tui {
                                     CrosstermEvent::Key(key) => {
                                         if key.kind == KeyEventKind::Press {
                                             _event_tx.send(Event::Key(key)).unwrap();
+                                            // 立即触发渲染
+                                            _event_tx.send(Event::Render).unwrap();
                                         }
                                     }
                                     CrosstermEvent::Mouse(mouse) => {
