@@ -113,12 +113,23 @@ async fn main() -> anyhow::Result<()> {
                     app.add_toast("消息发送成功", crate::app::ToastType::Success);
                 }
                 Event::AiError(error) => {
-                    // 处理 AI 错误
+                    // 处理 AI 错误 - 简化错误消息
+                    let short_error = if error.contains("Network error") {
+                        "网络错误".to_string()
+                    } else if error.contains("API error") {
+                        "API 错误".to_string()
+                    } else if error.contains("BudgetExceeded") {
+                        "预算超限".to_string()
+                    } else if error.contains("RateLimited") {
+                        "速率限制".to_string()
+                    } else {
+                        "未知错误".to_string()
+                    };
                     app.messages
-                        .push(crate::app::DisplayMessage::system(&format!("AI 错误: {}", error)));
+                        .push(crate::app::DisplayMessage::system(&format!("⚠️ {}", short_error)));
                     app.is_thinking = false;
                     app.pet.set_state(crate::pet::PetState::Idle);
-                    app.add_toast(&format!("错误: {}", error), crate::app::ToastType::Error);
+                    app.add_toast(&short_error, crate::app::ToastType::Error);
                 }
                 Event::Toast(message, is_error) => {
                     // 处理 Toast 通知

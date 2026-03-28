@@ -207,8 +207,23 @@ impl App {
 
     /// 添加 Toast 通知
     pub fn add_toast(&mut self, message: &str, toast_type: ToastType) {
+        // 截断过长的消息
+        let mut msg = message.to_string();
+        if msg.len() > 60 {
+            msg.truncate(57);
+            msg.push_str("...");
+        }
+        
+        // 移除换行符，保持一行
+        msg = msg.replace('\n', " ").replace('\r', "");
+        
+        // 限制 toast 数量
+        if self.toasts.len() >= 5 {
+            self.toasts.remove(0);
+        }
+        
         self.toasts.push(Toast {
-            message: message.to_string(),
+            message: msg,
             toast_type,
             created_at: Instant::now(),
             duration: Duration::from_secs(3),

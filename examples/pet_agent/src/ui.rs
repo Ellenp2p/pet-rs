@@ -196,6 +196,7 @@ fn render_toasts(f: &mut Frame, area: ratatui::layout::Rect, app: &App) {
     let toast_items: Vec<ListItem> = app
         .toasts
         .iter()
+        .take(5) // 最多显示 5 条
         .map(|toast| {
             let style = match toast.toast_type {
                 crate::app::ToastType::Info => Style::default().fg(Color::Cyan),
@@ -203,7 +204,16 @@ fn render_toasts(f: &mut Frame, area: ratatui::layout::Rect, app: &App) {
                 crate::app::ToastType::Warning => Style::default().fg(Color::Yellow),
                 crate::app::ToastType::Error => Style::default().fg(Color::Red),
             };
-            ListItem::new(Line::from(Span::styled(&toast.message, style)))
+
+            // 截断消息以适应宽度
+            let max_width = area.width.saturating_sub(4) as usize;
+            let mut msg = toast.message.clone();
+            if msg.len() > max_width {
+                msg.truncate(max_width.saturating_sub(3));
+                msg.push_str("...");
+            }
+
+            ListItem::new(Line::from(Span::styled(msg, style)))
         })
         .collect();
 
