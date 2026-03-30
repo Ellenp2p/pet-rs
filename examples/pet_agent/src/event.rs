@@ -1,12 +1,44 @@
 //! 事件处理模块
 //!
 //! 处理键盘和鼠标事件。
-//! 使用 tui-textarea 处理输入。
+//! 使用 ratatui-interact 处理输入。
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
+use ratatui_interact::components::scrollable_content::handle_scrollable_content_key;
 
 /// 处理键盘事件
 pub async fn handle_key_event(key: KeyEvent, app: &mut crate::app::App) -> anyhow::Result<()> {
+    // 当焦点在消息区域时，处理上下键滚动
+    if app.focused_area == crate::app::FocusedArea::Messages {
+        match key.code {
+            KeyCode::Up => {
+                app.scroll_state.scroll_up(3);
+                return Ok(());
+            }
+            KeyCode::Down => {
+                app.scroll_state.scroll_down(3, 10);
+                return Ok(());
+            }
+            KeyCode::Home => {
+                app.scroll_state.scroll_to_top();
+                return Ok(());
+            }
+            KeyCode::End => {
+                app.scroll_state.scroll_to_bottom(10);
+                return Ok(());
+            }
+            KeyCode::PageUp => {
+                app.scroll_state.page_up(10);
+                return Ok(());
+            }
+            KeyCode::PageDown => {
+                app.scroll_state.page_down(10);
+                return Ok(());
+            }
+            _ => {}
+        }
+    }
+
     // 特殊按键处理
     match key.code {
         // 退出
@@ -21,7 +53,7 @@ pub async fn handle_key_event(key: KeyEvent, app: &mut crate::app::App) -> anyho
         }
         // 回车发送消息
         KeyCode::Enter => {
-            let input = app.textarea.lines().join("\n");
+            let input = app.textarea_state.text().to_string();
             if !input.is_empty() {
                 // 检查是否是命令
                 if input.starts_with('/') {
@@ -30,12 +62,7 @@ pub async fn handle_key_event(key: KeyEvent, app: &mut crate::app::App) -> anyho
                     app.messages
                         .push(crate::app::DisplayMessage::system(&response));
                     // 清空输入
-                    app.textarea = tui_textarea::TextArea::default();
-                    app.textarea.set_block(
-                        ratatui::widgets::Block::default()
-                            .borders(ratatui::widgets::Borders::ALL)
-                            .title("输入消息")
-                    );
+                    app.textarea_state.clear();
                 } else {
                     // 发送消息给 AI
                     app.send_message().await?;
@@ -94,8 +121,46 @@ pub async fn handle_key_event(key: KeyEvent, app: &mut crate::app::App) -> anyho
         _ => {}
     }
 
-    // 其他按键交给 tui-textarea 处理
-    app.textarea.input(key);
+    // 其他按键交给 TextAreaState 处理
+    match key.code {
+        KeyCode::Char(c) => {
+            app.textarea_state.insert_char(c);
+        }
+        KeyCode::Backspace => {
+            app.textarea_state.delete_char_backward();
+        }
+        KeyCode::Delete => {
+            app.textarea_state.delete_char_forward();
+        }
+        KeyCode::Left => {
+            app.textarea_state.move_left();
+        }
+        KeyCode::Right => {
+            app.textarea_state.move_right();
+        }
+        KeyCode::Up => {
+            app.textarea_state.move_up();
+        }
+        KeyCode::Down => {
+            app.textarea_state.move_down();
+        }
+        KeyCode::Home => {
+            app.textarea_state.move_line_start();
+        }
+        KeyCode::End => {
+            app.textarea_state.move_line_end();
+        }
+        KeyCode::Tab => {
+            app.textarea_state.insert_tab();
+        }
+        KeyCode::PageUp => {
+            app.textarea_state.move_page_up();
+        }
+        KeyCode::PageDown => {
+            app.textarea_state.move_page_down();
+        }
+        _ => {}
+    }
     Ok(())
 }
 
@@ -107,6 +172,27 @@ pub async fn handle_mouse_event(
     match mouse.kind {
         MouseEventKind::Down(crossterm::event::MouseButton::Left) => {
             let (x, y) = (mouse.column, mouse.row);
+
+            // 根据点击位置切换焦点区域
+            // 标题行 (0-2行)
+            if y <= 2 {
+                // 忽略标题栏点击
+            }
+            // 内容区域 (3-12行，约)
+            else if y >= 3 && y <= 12 {
+                // 左边区域：宠物/位置
+                if x < 40 {
+                    app.focused_area = crate::app::FocusedArea::Pet;
+                }
+                // 右边区域：消息历史
+                else {
+                    app.focused_area = crate::app::FocusedArea::Messages;
+                }
+            }
+            // 输入区域 (约 13行以后)
+            else if y >= 13 {
+                app.focused_area = crate::app::FocusedArea::Input;
+            }
 
             // 检测位置标签点击 (第 3 行)
             if y == 2 {
@@ -122,10 +208,22 @@ pub async fn handle_mouse_event(
             }
         }
         MouseEventKind::ScrollUp => {
-            // 向上滚动消息历史
+            // 向上滚动消息历史（当焦点在消息区域时）
+            if app.focused_area == crate::app::FocusedArea::Messages {
+                app.scroll_state.scroll_up(3);
+            } else if app.focused_area == crate::app::FocusedArea::Input {
+                // 输入框中向上滚动
+                app.textarea_state.move_up();
+            }
         }
         MouseEventKind::ScrollDown => {
-            // 向下滚动消息历史
+            // 向下滚动消息历史（当焦点在消息区域时）
+            if app.focused_area == crate::app::FocusedArea::Messages {
+                app.scroll_state.scroll_down(3, 10);
+            } else if app.focused_area == crate::app::FocusedArea::Input {
+                // 输入框中向下滚动
+                app.textarea_state.move_down();
+            }
         }
         _ => {}
     }

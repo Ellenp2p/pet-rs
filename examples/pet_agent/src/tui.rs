@@ -38,8 +38,12 @@ pub enum Event {
     Mouse(MouseEvent),
     /// 窗口大小变化
     Resize(u16, u16),
-    /// AI 响应成功
+    /// AI 响应成功（完整响应）
     AiResponse(String),
+    /// AI 流式响应片段（边收边显示）
+    AiChunk(String),
+    /// AI 响应完成（最终完整响应）
+    AiComplete(String),
     /// AI 错误
     AiError(String),
     /// Toast 通知 (message, is_error)

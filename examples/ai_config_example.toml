@@ -1,0 +1,103 @@
+# agent-pet-rs AI 配置示例
+#
+# 将此文件放置在 ~/.pet_agent/config.toml 或项目根目录
+
+[ai]
+# 默认使用的提供商
+default_provider = "openai"
+
+# 是否自动切换提供商（当当前提供商失败时）
+auto_switch = true
+
+# 提供商切换顺序
+switch_order = ["openai", "anthropic", "ollama"]
+
+# ========== OpenAI 配置 ==========
+[ai.providers.openai]
+enabled = true
+provider_type = "OpenAI"
+model = "gpt-4o-mini"
+api_base = "https://api.openai.com/v1"
+# api_key 可以直接设置或通过环境变量 OPENAI_API_KEY
+# api_key = "sk-..."
+max_tokens = 1000
+temperature = 0.7
+priority = 1
+
+[ai.providers.openai.pricing]
+input_per_million = 0.15    # $0.15 per 1M input tokens
+output_per_million = 0.60   # $0.60 per 1M output tokens
+
+[ai.providers.openai.rate_limit]
+enabled = true
+requests_per_minute = 60
+requests_per_hour = 1000
+tokens_per_minute = 100000
+tokens_per_hour = 1000000
+
+# ========== Anthropic (Claude) 配置 ==========
+[ai.providers.anthropic]
+enabled = true
+provider_type = "Anthropic"
+model = "claude-3-haiku-20240307"
+api_base = "https://api.anthropic.com/v1"
+# api_key 可以直接设置或通过环境变量 ANTHROPIC_API_KEY
+# api_key = "sk-ant-..."
+max_tokens = 1000
+temperature = 0.7
+priority = 2
+
+[ai.providers.anthropic.pricing]
+input_per_million = 0.25    # $0.25 per 1M input tokens
+output_per_million = 1.25   # $1.25 per 1M output tokens
+
+[ai.providers.anthropic.rate_limit]
+enabled = true
+requests_per_minute = 40
+requests_per_hour = 500
+tokens_per_minute = 80000
+tokens_per_hour = 800000
+
+# ========== Ollama 配置（本地，免费） ==========
+[ai.providers.ollama]
+enabled = true
+provider_type = "Ollama"
+model = "llama3"
+api_base = "http://localhost:11434"
+# Ollama 不需要 API Key
+max_tokens = 1000
+temperature = 0.7
+priority = 3
+
+[ai.providers.ollama.pricing]
+input_per_million = 0.0     # 本地免费
+output_per_million = 0.0
+
+[ai.providers.ollama.rate_limit]
+enabled = false             # 本地不限速
+
+# ========== OpenRouter 配置（WASM 插件方式） ==========
+# 注意：OpenRouter 作为 WASM 插件时的配置
+[ai.providers.openrouter]
+enabled = false             # 默认禁用，需要 WASM 插件支持
+provider_type = "Custom"
+model = "stepfun/step-3.5-flash:free"
+api_base = "https://openrouter.ai/api/v1"
+priority = 4
+
+[ai.providers.openrouter.pricing]
+input_per_million = 0.0
+output_per_million = 0.0
+
+# ========== 预算管理 ==========
+[ai.budget]
+enabled = false             # 默认禁用预算限制
+daily_limit = 5.00          # 每日 $5.00
+monthly_limit = 50.00       # 每月 $50.00
+warning_threshold = 0.8     # 80% 时警告
+
+# ========== WASM 插件配置 ==========
+[ai.wasm_plugins]
+enabled = false             # 默认禁用 WASM 插件
+plugins_dir = "~/.pet_agent/plugins"
+auto_load = true

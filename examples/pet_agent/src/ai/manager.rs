@@ -99,7 +99,11 @@ impl ProviderManager {
 
     pub async fn chat_with_fallback(&mut self, messages: Vec<ChatMessage>) -> Result<String, AIError> {
         let start = self.current_index;
+        let mut attempt = 0;
+        let max_attempts = self.switch_order.len();
+        
         loop {
+            attempt += 1;
             let config = match self.current_config() {
                 Some(c) => c.clone(),
                 None => return Err(AIError::NoProviderAvailable),
@@ -108,24 +112,49 @@ impl ProviderManager {
             let name = config.name.clone();
             let estimated_tokens: u32 = messages.iter().map(|m| (m.content.len() / 4) as u32).sum();
 
+            // 记录尝试
+            crate::log::info(&format!("尝试提供商 {} ({}/{})", name, attempt, max_attempts));
+
             if let Some(rl) = self.rate_limiters.get_mut(&name) {
                 if let Err(e) = rl.wait_if_needed(estimated_tokens).await {
-                    eprintln!("Provider {} 速率限制: {}", name, e);
-                    if !self.switch_to_next() { return Err(e); }
+                    crate::log::warn(&format!("提供商 {} 速率限制，切换到下一个", name));
+                    if !self.switch_to_next() { 
+                        crate::log::error("所有提供商都已尝试");
+                        return Err(e); 
+                    }
                     continue;
                 }
             }
 
             match super::adapters::chat(messages.clone(), &config).await {
                 Ok(response) => {
+                    // 记录成功恢复
+                    if attempt > 1 {
+                        crate::log::success(&format!(
+                            "✓ 提供商 {} 恢复成功！之前 {} 次失败", 
+                            name, attempt - 1
+                        ));
+                    } else {
+                        crate::log::success(&format!("✓ 提供商 {} 成功", name));
+                    }
                     self.budget_tracker.check_budget(response.usage.total_tokens as f64 / 1000000.0 * 0.01).ok();
                     self.usage_tracker.record(&name, &config.model, &response.usage);
                     return Ok(response.content);
                 }
                 Err(e) => {
-                    eprintln!("Provider {} 失败: {}", name, e);
-                    if !self.switch_to_next() { return Err(e); }
-                    if self.current_index == start { return Err(AIError::AllProvidersFailed); }
+                    crate::log::error(&format!("✗ 提供商 {} 失败: {}", name, e));
+                    
+                    if !self.switch_to_next() { 
+                        crate::log::error("所有提供商都已失败");
+                        return Err(e); 
+                    }
+                    if self.current_index == start { 
+                        crate::log::error("已遍历所有提供商，全部失败");
+                        return Err(AIError::AllProvidersFailed); 
+                    }
+                    
+                    let next_name = self.current_provider_name();
+                    crate::log::info(&format!("切换到提供商 {}", next_name));
                 }
             }
         }

@@ -372,9 +372,92 @@ pub mod host_functions {
     // ========== 网络 ==========
 
     /// HTTP 请求
-    /// 参数: method: *const u8, url: *const u8, body: *const u8
-    /// 返回: *const u8 (JSON)
+    /// 参数: method_ptr, method_len, url_ptr, url_len, headers_ptr, headers_len (JSON), body_ptr, body_len
+    /// 返回: *const u8 (JSON response with status, headers, body)
     pub const FN_HTTP_REQUEST: &str = "host_http_request";
+
+    // ========== AI Provider 专用 ==========
+
+    /// 获取 Secret (API Key 等敏感配置)
+    /// 参数: key_ptr: *const u8, key_len: usize
+    /// 返回: usize (写入结果的字节数，0 表示未找到)
+    pub const FN_GET_SECRET: &str = "host_get_secret";
+
+    /// 记录使用量
+    /// 参数: provider_ptr, provider_len, model_ptr, model_len, input_tokens: u32, output_tokens: u32, cost_f64_bytes: [u8; 8]
+    pub const FN_RECORD_USAGE: &str = "host_record_usage";
+
+    /// 检查预算
+    /// 返回: u32 (0=ok, 1=exceeded, 2=warning)
+    pub const FN_CHECK_BUDGET: &str = "host_check_budget";
+
+    /// 发送流式响应片段
+    /// 参数: callback_id: u32, chunk_ptr: *const u8, chunk_len: usize
+    pub const FN_EMIT_CHUNK: &str = "host_emit_chunk";
+
+    // ========== 渠道插件专用 ==========
+
+    /// 发送入站消息到框架
+    /// 当 WASM 渠道插件收到消息时，调用此函数将消息注入框架
+    /// 参数: message_json_ptr: *const u8, message_json_len: usize
+    pub const FN_EMIT_INCOMING: &str = "host_emit_incoming";
+
+    /// HTTP 长轮询请求 (带超时)
+    /// 用于长轮询场景 (如 Telegram getUpdates)
+    /// 参数: url_ptr, url_len, headers_json_ptr, headers_json_len, timeout_ms: u32
+    /// 返回: usize (响应字节数，0=超时或错误)
+    pub const FN_HTTP_POLL: &str = "host_http_poll";
+
+    /// WebSocket 连接
+    /// 参数: url_ptr, url_len, headers_json_ptr, headers_json_len
+    /// 返回: u32 (连接句柄，0=失败)
+    pub const FN_WS_CONNECT: &str = "host_ws_connect";
+
+    /// WebSocket 发送消息
+    /// 参数: handle: u32, message_ptr, message_len
+    /// 返回: u32 (0=成功, 1=失败)
+    pub const FN_WS_SEND: &str = "host_ws_send";
+
+    /// WebSocket 接收消息 (非阻塞)
+    /// 参数: handle: u32, result_ptr, result_max_len
+    /// 返回: usize (消息字节数，0=无消息)
+    pub const FN_WS_POLL: &str = "host_ws_poll";
+
+    /// WebSocket 断开连接
+    /// 参数: handle: u32
+    pub const FN_WS_DISCONNECT: &str = "host_ws_disconnect";
+}
+
+/// WASM 渠道插件导出函数常量
+#[cfg(feature = "wasm-plugin")]
+pub mod channel_exports {
+    /// 连接到渠道服务
+    /// 参数: config_json_ptr, config_json_len (包含 auth_token, api_base 等)
+    /// 返回: usize (结果 JSON 字节数)
+    pub const FN_CHANNEL_CONNECT: &str = "wasm_channel_connect";
+
+    /// 断开连接
+    /// 返回: usize (结果 JSON 字节数)
+    pub const FN_CHANNEL_DISCONNECT: &str = "wasm_channel_disconnect";
+
+    /// 发送消息
+    /// 参数: message_json_ptr, message_json_len (包含 recipient, content 等)
+    /// 返回: usize (结果 JSON 字节数，包含 message_id)
+    pub const FN_CHANNEL_SEND: &str = "wasm_channel_send";
+
+    /// 轮询新消息 (由宿主定期调用)
+    /// 参数: state_json_ptr, state_json_len (上次轮询状态)
+    /// 返回: usize (结果 JSON 字节数，包含 messages[] 和 new_state)
+    pub const FN_CHANNEL_POLL: &str = "wasm_channel_poll";
+
+    /// 获取渠道状态
+    /// 返回: usize (状态 JSON 字节数)
+    pub const FN_CHANNEL_STATUS: &str = "wasm_channel_status";
+
+    /// 处理 Webhook 回调 (可选，用于平台回调)
+    /// 参数: webhook_json_ptr, webhook_json_len (包含 headers, body)
+    /// 返回: usize (响应 JSON 字节数)
+    pub const FN_CHANNEL_WEBHOOK: &str = "wasm_channel_webhook";
 }
 
 #[cfg(test)]

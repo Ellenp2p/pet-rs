@@ -1,0 +1,13 @@
+[package]
+name = "wasm_channel_discord"
+version = "0.1.0"
+edition = "2021"
+description = "Discord Bot API channel plugin for agent-pet-rs (WASM)"
+
+[lib]
+crate-type = ["cdylib"]
+
+[profile.release]
+panic = "abort"
+lto = true
+opt-level = 'z'

@@ -1,14 +1,17 @@
 //! 应用状态管理模块
 
-use crate::ai::{self, ChatMessage, ProviderManager};
+use crate::ai::{self, ProviderManager};
 use crate::animation::Animation;
 use crate::config::Config;
 use crate::location::Location;
 use crate::memory::Memory;
 use crate::pet::{Pet, PetState};
-use tui_textarea::TextArea;
+use crate::tui::Event;
+use ratatui_interact::components::textarea::TextAreaState;
+use ratatui_interact::components::scrollable_content::ScrollableContentState;
 use std::time::Instant;
 use std::time::Duration;
+use tokio::sync::mpsc::UnboundedSender;
 
 /// Toast 通知类型
 #[derive(Debug, Clone, PartialEq)]
@@ -17,6 +20,16 @@ pub enum ToastType {
     Success,
     Warning,
     Error,
+}
+
+/// 焦点区域
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FocusedArea {
+    #[default]
+    Messages,
+    Input,
+    Pet,
+    Location,
 }
 
 /// Toast 通知
@@ -34,14 +47,17 @@ pub struct App {
     pub memory: Memory,
     pub animation: Animation,
     pub provider_manager: Option<ProviderManager>,
-    pub textarea: TextArea<'static>,  // 使用 tui-textarea
-    pub character_index: usize,  // 保留用于兼容性
+    pub textarea_state: TextAreaState,
+    pub character_index: usize,
     pub messages: Vec<DisplayMessage>,
-    pub toasts: Vec<Toast>,  // Toast 通知
+    pub scroll_state: ScrollableContentState,
+    pub toasts: Vec<Toast>,
     pub should_quit: bool,
     pub is_thinking: bool,
     pub location_index: usize,
     pub needs_setup: bool,
+    pub event_tx: Option<UnboundedSender<Event>>,
+    pub focused_area: FocusedArea,
 }
 
 pub struct DisplayMessage {
@@ -63,7 +79,7 @@ impl DisplayMessage {
 }
 
 impl App {
-    pub fn new() -> anyhow::Result<Self> {
+    pub fn new(event_tx: Option<UnboundedSender<Event>>) -> anyhow::Result<Self> {
         let config = Config::load()?;
         let memory = Memory::load(&config.memory_path())?;
         let animation = Animation::new(config.settings.animation_speed);
@@ -83,13 +99,11 @@ impl App {
             None
         };
 
-        // 创建 tui-textarea 实例
-        let mut textarea = TextArea::default();
-        textarea.set_block(
-            ratatui::widgets::Block::default()
-                .borders(ratatui::widgets::Borders::ALL)
-                .title("输入消息")
-        );
+        // 创建 textarea 实例
+        let textarea_state = TextAreaState::default();
+        
+        // 创建滚动状态
+        let scroll_state = ScrollableContentState::default();
 
         Ok(Self {
             config,
@@ -97,64 +111,77 @@ impl App {
             memory,
             animation,
             provider_manager,
-            textarea,
+            textarea_state,
             character_index: 0,
             messages: Vec::new(),
+            scroll_state,
             toasts: Vec::new(),
             should_quit: false,
             is_thinking: false,
             location_index: 0,
             needs_setup,
+            event_tx,
+            focused_area: FocusedArea::Input,  // 默认焦点在输入框
         })
     }
 
     pub async fn send_message(&mut self) -> anyhow::Result<()> {
-        // 从 textarea 获取输入内容
-        let input = self.textarea.lines().join("\n");
+        let input = self.textarea_state.text().to_string();
         if input.is_empty() {
             return Ok(());
         }
 
-        // 清空 textarea
-        self.textarea = TextArea::default();
-        self.textarea.set_block(
-            ratatui::widgets::Block::default()
-                .borders(ratatui::widgets::Borders::ALL)
-                .title("输入消息")
-        );
+        self.textarea_state.clear();
 
         let user_message = input;
         self.messages.push(DisplayMessage::user(&user_message));
         self.pet.set_state(PetState::Thinking);
         self.is_thinking = true;
 
-        let system_prompt = ai::create_system_prompt(self.pet.location.name(), self.pet.state.name(), &self.pet.name);
-        let history = self.memory.get_recent_context(10);
-        let messages = ai::create_messages(&system_prompt, history, &user_message);
-
-        if let Some(ref mut manager) = self.provider_manager {
-            match manager.chat_with_fallback(messages).await {
-                Ok(response) => {
-                    self.messages.push(DisplayMessage::pet(&self.pet.name, &response));
-                    self.memory.add_conversation(self.pet.location.name(), &user_message, &response);
-                    self.pet.set_state(PetState::Happy);
-                    self.pet.boost_happiness(5.0);
-                    self.messages.push(DisplayMessage::system(&format!("📊 {}", manager.usage_summary())));
-                    self.add_toast("消息发送成功", ToastType::Success);
-                }
-                Err(e) => {
-                    self.messages.push(DisplayMessage::system(&format!("AI 错误: {}", e)));
-                    self.pet.set_state(PetState::Idle);
-                    self.add_toast(&format!("错误: {}", e), ToastType::Error);
-                }
+        let event_tx = match &self.event_tx {
+            Some(tx) => tx.clone(),
+            None => {
+                self.messages.push(DisplayMessage::system("事件通道未初始化"));
+                return Ok(());
             }
+        };
+
+        if let Some(ref manager) = self.provider_manager {
+            let config = manager.current_config()
+                .ok_or_else(|| anyhow::anyhow!("没有可用的 AI 提供商"))?
+                .clone();
+            
+            let system_prompt = ai::create_system_prompt(self.pet.location.name(), self.pet.state.name(), &self.pet.name);
+            let history = self.memory.get_recent_context(10);
+            let messages = ai::create_messages(&system_prompt, history, &user_message);
+            let memory_location = self.pet.location.name().to_string();
+            let memory_user_msg = user_message.clone();
+            let pet_name = self.pet.name.clone();
+            let memory_path = self.config.memory_path();
+            let usage_path = self.config.usage_path();
+
+            let tx_for_chunk = event_tx.clone();
+            tokio::spawn(async move {
+                use crate::ai::adapters;
+                
+                match adapters::chat_stream(&config, messages, move |chunk| {
+                    let _ = tx_for_chunk.send(Event::AiChunk(chunk));
+                }).await {
+                    Ok(response) => {
+                        let _ = event_tx.send(Event::AiComplete(response.content));
+                    }
+                    Err(e) => {
+                        let _ = event_tx.send(Event::AiError(e.to_string()));
+                    }
+                }
+            });
         } else {
             self.messages.push(DisplayMessage::system("请先配置 AI 提供商 (/setup)"));
             self.pet.set_state(PetState::Idle);
             self.add_toast("请先配置 AI 提供商", ToastType::Warning);
+            self.is_thinking = false;
         }
 
-        self.is_thinking = false;
         Ok(())
     }
 

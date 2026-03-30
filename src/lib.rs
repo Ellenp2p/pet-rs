@@ -18,6 +18,15 @@ pub mod memory;
 // Plugin modules
 pub mod plugins;
 
+// AI modules
+pub mod ai;
+
+// Channel modules (new)
+pub mod channels;
+
+// Session modules (new)
+pub mod session;
+
 // Legacy modules
 pub mod components;
 pub mod events;

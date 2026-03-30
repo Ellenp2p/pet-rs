@@ -15,6 +15,7 @@ mod commands;
 mod config;
 mod event;
 mod location;
+mod log;
 mod memory;
 mod pet;
 mod tui;
@@ -24,12 +25,23 @@ use tui::{Event, Tui};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // 初始化应用
-    let mut app = app::App::new()?;
+    // 创建 TUI
+    let mut tui = Tui::new()?
+        .tick_rate(4.0)
+        .frame_rate(30.0)
+        .mouse(true);
+
+    // 进入终端模式
+    tui.enter()?;
+
+    // 初始化应用（此时 TUI 已创建，可以传递 event_tx）
+    let event_tx = Some(tui.event_tx.clone());
+    let mut app = app::App::new(event_tx)?;
 
     // 如果需要设置，先进行设置
     if app.needs_setup {
         // 先退出 TUI 模式
+        tui.exit()?;
         println!("欢迎使用桌面宠物 Agent！");
         println!("请输入你的 OpenRouter API Key:");
         println!("(可以在 https://openrouter.ai/keys 获取)");
@@ -53,16 +65,10 @@ async fn main() -> anyhow::Result<()> {
         app.config.ai.providers.push(provider_config);
         app.config.save()?;
         println!("配置已保存！启动宠物...\n");
+
+        // 重新进入 TUI 模式
+        tui.enter()?;
     }
-
-    // 创建 TUI
-    let mut tui = Tui::new()?
-        .tick_rate(4.0) // 4 ticks per second
-        .frame_rate(30.0) // 30 frames per second
-        .mouse(true); // 启用鼠标
-
-    // 进入终端模式
-    tui.enter()?;
 
     // 添加欢迎消息
     app.messages.push(app::DisplayMessage::system(&format!(
@@ -93,7 +99,7 @@ async fn main() -> anyhow::Result<()> {
                 }
                 Event::Render => {
                     // 渲染 UI
-                    tui.draw(|f| ui::render(f, &app))?;
+                    tui.draw(|f| ui::render(f, &mut app))?;
                 }
                 Event::Key(key) => {
                     event::handle_key_event(key, &mut app).await?;
@@ -103,6 +109,24 @@ async fn main() -> anyhow::Result<()> {
                 }
                 Event::Resize(_, _) => {
                     // 处理窗口大小变化
+                }
+                Event::AiChunk(chunk) => {
+                    // 流式响应片段 - 实时显示
+                    if let Some(last) = app.messages.last_mut() {
+                        if last.sender == app.pet.name && !last.is_system {
+                            last.content.push_str(&chunk);
+                        } else {
+                            app.messages.push(crate::app::DisplayMessage::pet(&app.pet.name, &chunk));
+                        }
+                    } else {
+                        app.messages.push(crate::app::DisplayMessage::pet(&app.pet.name, &chunk));
+                    }
+                }
+                Event::AiComplete(response) => {
+                    // AI 响应完成 - 更新统计等
+                    app.is_thinking = false;
+                    app.pet.set_state(crate::pet::PetState::Happy);
+                    app.add_toast("消息发送成功", crate::app::ToastType::Success);
                 }
                 Event::AiResponse(response) => {
                     // 处理 AI 响应

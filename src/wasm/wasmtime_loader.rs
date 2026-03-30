@@ -33,6 +33,21 @@ pub struct StoreData {
     pub write_data_fn: Option<Arc<dyn Fn(&str, &str, Vec<u8>) + Send + Sync>>,
     /// Callback to read configuration
     pub read_config_fn: Option<Arc<dyn Fn(&str, &str) -> Option<String> + Send + Sync>>,
+    /// Callback to get secrets (API keys)
+    pub get_secret_fn: Option<Arc<dyn Fn(&str) -> Option<String> + Send + Sync>>,
+    /// Callback to perform HTTP requests (method, url, headers_json, body) -> response_json
+    pub http_request_fn:
+        Option<Arc<dyn Fn(&str, &str, &str, &[u8]) -> Result<String, String> + Send + Sync>>,
+    /// Callback to record usage
+    pub record_usage_fn: Option<Arc<dyn Fn(&str, &str, u32, u32, f64) + Send + Sync>>,
+    /// Callback to check budget
+    pub check_budget_fn: Option<Arc<dyn Fn() -> u32 + Send + Sync>>,
+    /// Callback to emit streaming chunk
+    pub emit_chunk_fn: Option<Arc<dyn Fn(u32, &str) + Send + Sync>>,
+    /// Callback to emit incoming message (for channel plugins)
+    pub emit_incoming_fn: Option<Arc<dyn Fn(&str) + Send + Sync>>,
+    /// Callback to perform HTTP long-poll (url, headers_json, timeout_ms) -> response_json
+    pub http_poll_fn: Option<Arc<dyn Fn(&str, &str, u32) -> Result<String, String> + Send + Sync>>,
 }
 
 /// WASM plugin instance wrapper (store-per-call strategy).
@@ -50,6 +65,21 @@ pub struct WasmtimePlugin {
     write_data_fn: Option<Arc<dyn Fn(&str, &str, Vec<u8>) + Send + Sync>>,
     /// Callback to read configuration
     read_config_fn: Option<Arc<dyn Fn(&str, &str) -> Option<String> + Send + Sync>>,
+    /// Callback to get secrets (API keys)
+    get_secret_fn: Option<Arc<dyn Fn(&str) -> Option<String> + Send + Sync>>,
+    /// Callback to perform HTTP requests
+    http_request_fn:
+        Option<Arc<dyn Fn(&str, &str, &str, &[u8]) -> Result<String, String> + Send + Sync>>,
+    /// Callback to record usage
+    record_usage_fn: Option<Arc<dyn Fn(&str, &str, u32, u32, f64) + Send + Sync>>,
+    /// Callback to check budget
+    check_budget_fn: Option<Arc<dyn Fn() -> u32 + Send + Sync>>,
+    /// Callback to emit streaming chunk
+    emit_chunk_fn: Option<Arc<dyn Fn(u32, &str) + Send + Sync>>,
+    /// Callback to emit incoming message (for channel plugins)
+    emit_incoming_fn: Option<Arc<dyn Fn(&str) + Send + Sync>>,
+    /// Callback to perform HTTP long-poll
+    http_poll_fn: Option<Arc<dyn Fn(&str, &str, u32) -> Result<String, String> + Send + Sync>>,
 }
 
 #[cfg(feature = "wasm-plugin")]
@@ -97,6 +127,13 @@ impl WasmtimePlugin {
             read_data_fn: None,
             write_data_fn: None,
             read_config_fn: None,
+            get_secret_fn: None,
+            http_request_fn: None,
+            record_usage_fn: None,
+            check_budget_fn: None,
+            emit_chunk_fn: None,
+            emit_incoming_fn: None,
+            http_poll_fn: None,
         })
     }
 
@@ -131,6 +168,108 @@ impl WasmtimePlugin {
             read_data_fn: Some(read_data_fn),
             write_data_fn: Some(write_data_fn),
             read_config_fn: Some(read_config_fn),
+            get_secret_fn: None,
+            http_request_fn: None,
+            record_usage_fn: None,
+            check_budget_fn: None,
+            emit_chunk_fn: None,
+            emit_incoming_fn: None,
+            http_poll_fn: None,
+        })
+    }
+
+    /// Load a WASM plugin with AI provider callbacks.
+    #[allow(clippy::too_many_arguments)]
+    pub fn load_with_ai_callbacks(
+        wasm_path: &std::path::Path,
+        override_id: Option<String>,
+        read_data_fn: Arc<dyn Fn(&str, &str) -> Option<Vec<u8>> + Send + Sync>,
+        write_data_fn: Arc<dyn Fn(&str, &str, Vec<u8>) + Send + Sync>,
+        read_config_fn: Arc<dyn Fn(&str, &str) -> Option<String> + Send + Sync>,
+        get_secret_fn: Arc<dyn Fn(&str) -> Option<String> + Send + Sync>,
+        http_request_fn: Arc<
+            dyn Fn(&str, &str, &str, &[u8]) -> Result<String, String> + Send + Sync,
+        >,
+        record_usage_fn: Arc<dyn Fn(&str, &str, u32, u32, f64) + Send + Sync>,
+        check_budget_fn: Arc<dyn Fn() -> u32 + Send + Sync>,
+        emit_chunk_fn: Arc<dyn Fn(u32, &str) + Send + Sync>,
+    ) -> Result<Self, FrameworkError> {
+        let wasm_bytes = fs::read(wasm_path)
+            .map_err(|e| FrameworkError::WasmLoad(format!("failed to read file: {}", e)))?;
+
+        let engine = Engine::default();
+
+        // Create a temporary instance just to read the name and version
+        let (name, version, _instance, store, _memory, _on_tick, _on_event) =
+            Self::create_instance_with_name_and_version(&engine, &wasm_bytes)?;
+        let id = WasmPluginId::new(override_id.unwrap_or_else(|| name.clone()));
+
+        // Drop the temporary store
+        let _ = store;
+
+        Ok(Self {
+            id,
+            name,
+            version,
+            wasm_bytes,
+            engine,
+            state: std::sync::RwLock::new(Vec::new()),
+            read_data_fn: Some(read_data_fn),
+            write_data_fn: Some(write_data_fn),
+            read_config_fn: Some(read_config_fn),
+            get_secret_fn: Some(get_secret_fn),
+            http_request_fn: Some(http_request_fn),
+            record_usage_fn: Some(record_usage_fn),
+            check_budget_fn: Some(check_budget_fn),
+            emit_chunk_fn: Some(emit_chunk_fn),
+            emit_incoming_fn: None,
+            http_poll_fn: None,
+        })
+    }
+
+    /// Load a WASM plugin with channel plugin callbacks.
+    #[allow(clippy::too_many_arguments)]
+    pub fn load_with_channel_callbacks(
+        wasm_path: &std::path::Path,
+        override_id: Option<String>,
+        read_data_fn: Arc<dyn Fn(&str, &str) -> Option<Vec<u8>> + Send + Sync>,
+        write_data_fn: Arc<dyn Fn(&str, &str, Vec<u8>) + Send + Sync>,
+        read_config_fn: Arc<dyn Fn(&str, &str) -> Option<String> + Send + Sync>,
+        get_secret_fn: Arc<dyn Fn(&str) -> Option<String> + Send + Sync>,
+        http_request_fn: Arc<
+            dyn Fn(&str, &str, &str, &[u8]) -> Result<String, String> + Send + Sync,
+        >,
+        emit_incoming_fn: Arc<dyn Fn(&str) + Send + Sync>,
+        http_poll_fn: Arc<dyn Fn(&str, &str, u32) -> Result<String, String> + Send + Sync>,
+    ) -> Result<Self, FrameworkError> {
+        let wasm_bytes = fs::read(wasm_path)
+            .map_err(|e| FrameworkError::WasmLoad(format!("failed to read file: {}", e)))?;
+
+        let engine = Engine::default();
+
+        let (name, version, _instance, store, _memory, _on_tick, _on_event) =
+            Self::create_instance_with_name_and_version(&engine, &wasm_bytes)?;
+        let id = WasmPluginId::new(override_id.unwrap_or_else(|| name.clone()));
+
+        let _ = store;
+
+        Ok(Self {
+            id,
+            name,
+            version,
+            wasm_bytes,
+            engine,
+            state: std::sync::RwLock::new(Vec::new()),
+            read_data_fn: Some(read_data_fn),
+            write_data_fn: Some(write_data_fn),
+            read_config_fn: Some(read_config_fn),
+            get_secret_fn: Some(get_secret_fn),
+            http_request_fn: Some(http_request_fn),
+            record_usage_fn: None,
+            check_budget_fn: None,
+            emit_chunk_fn: None,
+            emit_incoming_fn: Some(emit_incoming_fn),
+            http_poll_fn: Some(http_poll_fn),
         })
     }
 
@@ -327,6 +466,7 @@ impl WasmtimePlugin {
     }
 
     /// Create instance with custom host functions for data read/write.
+    #[allow(dead_code)]
     fn create_instance_with_data_callbacks(
         engine: &Engine,
         wasm_bytes: &[u8],
@@ -344,15 +484,54 @@ impl WasmtimePlugin {
         ),
         FrameworkError,
     > {
+        Self::create_instance_with_all_callbacks(
+            engine,
+            wasm_bytes,
+            plugin_id,
+            read_data_fn,
+            write_data_fn,
+            read_config_fn,
+            None, // get_secret_fn
+            None, // http_request_fn
+            None, // record_usage_fn
+            None, // check_budget_fn
+            None, // emit_chunk_fn
+        )
+    }
+
+    /// Create instance with all callbacks including AI provider support.
+    #[allow(clippy::too_many_arguments)]
+    fn create_instance_with_all_callbacks(
+        engine: &Engine,
+        wasm_bytes: &[u8],
+        plugin_id: WasmPluginId,
+        read_data_fn: Arc<dyn Fn(&str, &str) -> Option<Vec<u8>> + Send + Sync>,
+        write_data_fn: Arc<dyn Fn(&str, &str, Vec<u8>) + Send + Sync>,
+        read_config_fn: Arc<dyn Fn(&str, &str) -> Option<String> + Send + Sync>,
+        get_secret_fn: Option<Arc<dyn Fn(&str) -> Option<String> + Send + Sync>>,
+        http_request_fn: Option<
+            Arc<dyn Fn(&str, &str, &str, &[u8]) -> Result<String, String> + Send + Sync>,
+        >,
+        record_usage_fn: Option<Arc<dyn Fn(&str, &str, u32, u32, f64) + Send + Sync>>,
+        check_budget_fn: Option<Arc<dyn Fn() -> u32 + Send + Sync>>,
+        emit_chunk_fn: Option<Arc<dyn Fn(u32, &str) + Send + Sync>>,
+    ) -> Result<
+        (
+            Instance,
+            Store<StoreData>,
+            Memory,
+            TypedFunc<u64, ()>,
+            TypedFunc<(u64, u32, u32, u32, u32), ()>,
+        ),
+        FrameworkError,
+    > {
         let module = Module::new(engine, wasm_bytes)
             .map_err(|e| FrameworkError::WasmLoad(format!("compile failed: {}", e)))?;
 
         let mut linker = Linker::<StoreData>::new(engine);
 
         // Define host function: wasm_plugin_set_data(key_ptr, key_len, data_ptr, data_len)
-        let read_data_fn_clone = read_data_fn.clone();
         let write_data_fn_clone = write_data_fn.clone();
-
         linker
             .func_wrap(
                 "env",
@@ -368,7 +547,6 @@ impl WasmtimePlugin {
                         .unwrap();
                     let mem_data = memory.data(&caller);
 
-                    // Read key
                     let key_start = key_ptr as usize;
                     let key_end = key_start + key_len as usize;
                     if key_end > mem_data.len() {
@@ -377,7 +555,6 @@ impl WasmtimePlugin {
                     let key_bytes = &mem_data[key_start..key_end];
                     let key = core::str::from_utf8(key_bytes).unwrap_or("");
 
-                    // Read data
                     let data_start = data_ptr as usize;
                     let data_end = data_start + data_len as usize;
                     if data_end > mem_data.len() {
@@ -385,7 +562,6 @@ impl WasmtimePlugin {
                     }
                     let data = mem_data[data_start..data_end].to_vec();
 
-                    // Write data
                     write_data_fn_clone(key, key, data);
                 },
             )
@@ -393,6 +569,8 @@ impl WasmtimePlugin {
                 FrameworkError::WasmLoad(format!("failed to define wasm_plugin_set_data: {}", e))
             })?;
 
+        // Define host function: wasm_plugin_read_data
+        let read_data_fn_clone = read_data_fn.clone();
         linker
             .func_wrap(
                 "env",
@@ -409,7 +587,6 @@ impl WasmtimePlugin {
                         .unwrap();
                     let mem_data = memory.data(&caller);
 
-                    // Read key
                     let key_start = key_ptr as usize;
                     let key_end = key_start + key_len as usize;
                     if key_end > mem_data.len() {
@@ -418,7 +595,6 @@ impl WasmtimePlugin {
                     let key_bytes = &mem_data[key_start..key_end];
                     let key = core::str::from_utf8(key_bytes).unwrap_or("");
 
-                    // Read data from host
                     if let Some(data) = read_data_fn_clone(key, key) {
                         let result_start = result_ptr as usize;
                         let result_end = result_start + data.len().min(result_max_len as usize);
@@ -436,7 +612,7 @@ impl WasmtimePlugin {
                 FrameworkError::WasmLoad(format!("failed to define wasm_plugin_read_data: {}", e))
             })?;
 
-        // Define host function: wasm_plugin_get_config(key_ptr, key_len, result_ptr, result_max_len)
+        // Define host function: wasm_plugin_get_config
         let read_config_fn_clone = read_config_fn.clone();
         linker
             .func_wrap(
@@ -454,7 +630,6 @@ impl WasmtimePlugin {
                         .unwrap();
                     let mem_data = memory.data(&caller);
 
-                    // Read key
                     let key_start = key_ptr as usize;
                     let key_end = key_start + key_len as usize;
                     if key_end > mem_data.len() {
@@ -463,7 +638,6 @@ impl WasmtimePlugin {
                     let key_bytes = &mem_data[key_start..key_end];
                     let key = core::str::from_utf8(key_bytes).unwrap_or("");
 
-                    // Read config from host
                     if let Some(config_value) = read_config_fn_clone(key, key) {
                         let config_bytes = config_value.as_bytes();
                         let result_start = result_ptr as usize;
@@ -483,6 +657,237 @@ impl WasmtimePlugin {
                 FrameworkError::WasmLoad(format!("failed to define wasm_plugin_get_config: {}", e))
             })?;
 
+        // Define host function: host_get_secret(key_ptr, key_len, result_ptr, result_max_len) -> u32
+        if let Some(get_secret_fn) = get_secret_fn.clone() {
+            linker
+                .func_wrap(
+                    "env",
+                    "host_get_secret",
+                    move |mut caller: Caller<'_, StoreData>,
+                          key_ptr: u32,
+                          key_len: u32,
+                          result_ptr: u32,
+                          result_max_len: u32|
+                          -> u32 {
+                        let memory = caller
+                            .get_export("memory")
+                            .and_then(|e| e.into_memory())
+                            .unwrap();
+                        let mem_data = memory.data(&caller);
+
+                        let key_start = key_ptr as usize;
+                        let key_end = key_start + key_len as usize;
+                        if key_end > mem_data.len() {
+                            return 0;
+                        }
+                        let key_bytes = &mem_data[key_start..key_end];
+                        let key = core::str::from_utf8(key_bytes).unwrap_or("");
+
+                        if let Some(secret) = get_secret_fn(key) {
+                            let secret_bytes = secret.as_bytes();
+                            let result_start = result_ptr as usize;
+                            let result_end =
+                                result_start + secret_bytes.len().min(result_max_len as usize);
+                            if result_end <= mem_data.len() {
+                                let mem_data = memory.data_mut(&mut caller);
+                                mem_data[result_start..result_end]
+                                    .copy_from_slice(&secret_bytes[..result_end - result_start]);
+                                return secret_bytes.len() as u32;
+                            }
+                        }
+                        0
+                    },
+                )
+                .map_err(|e| {
+                    FrameworkError::WasmLoad(format!("failed to define host_get_secret: {}", e))
+                })?;
+        }
+
+        // Define host function: host_http_request(method_ptr, method_len, url_ptr, url_len, headers_ptr, headers_len, body_ptr, body_len, result_ptr, result_max_len) -> u32
+        if let Some(http_request_fn) = http_request_fn.clone() {
+            linker
+                .func_wrap(
+                    "env",
+                    "host_http_request",
+                    move |mut caller: Caller<'_, StoreData>,
+                          method_ptr: u32,
+                          method_len: u32,
+                          url_ptr: u32,
+                          url_len: u32,
+                          headers_ptr: u32,
+                          headers_len: u32,
+                          body_ptr: u32,
+                          body_len: u32,
+                          result_ptr: u32,
+                          result_max_len: u32|
+                          -> u32 {
+                        let memory = caller
+                            .get_export("memory")
+                            .and_then(|e| e.into_memory())
+                            .unwrap();
+                        let mem_data = memory.data(&caller);
+
+                        // Read method
+                        let method_start = method_ptr as usize;
+                        let method_end = method_start + method_len as usize;
+                        if method_end > mem_data.len() {
+                            return 0;
+                        }
+                        let method = core::str::from_utf8(&mem_data[method_start..method_end])
+                            .unwrap_or("GET");
+
+                        // Read URL
+                        let url_start = url_ptr as usize;
+                        let url_end = url_start + url_len as usize;
+                        if url_end > mem_data.len() {
+                            return 0;
+                        }
+                        let url = core::str::from_utf8(&mem_data[url_start..url_end]).unwrap_or("");
+
+                        // Read headers (JSON)
+                        let headers_start = headers_ptr as usize;
+                        let headers_end = headers_start + headers_len as usize;
+                        if headers_end > mem_data.len() {
+                            return 0;
+                        }
+                        let headers = core::str::from_utf8(&mem_data[headers_start..headers_end])
+                            .unwrap_or("{}");
+
+                        // Read body
+                        let body_start = body_ptr as usize;
+                        let body_end = body_start + body_len as usize;
+                        if body_end > mem_data.len() {
+                            return 0;
+                        }
+                        let body = &mem_data[body_start..body_end];
+
+                        // Call the HTTP request function
+                        match http_request_fn(method, url, headers, body) {
+                            Ok(response) => {
+                                let response_bytes = response.as_bytes();
+                                let result_start = result_ptr as usize;
+                                let result_end = result_start
+                                    + response_bytes.len().min(result_max_len as usize);
+                                if result_end <= mem_data.len() {
+                                    let mem_data = memory.data_mut(&mut caller);
+                                    mem_data[result_start..result_end].copy_from_slice(
+                                        &response_bytes[..result_end - result_start],
+                                    );
+                                    return response_bytes.len() as u32;
+                                }
+                                0
+                            }
+                            Err(_) => 0,
+                        }
+                    },
+                )
+                .map_err(|e| {
+                    FrameworkError::WasmLoad(format!("failed to define host_http_request: {}", e))
+                })?;
+        }
+
+        // Define host function: host_record_usage(provider_ptr, provider_len, model_ptr, model_len, input_tokens, output_tokens, cost_bytes_ptr)
+        if let Some(record_usage_fn) = record_usage_fn.clone() {
+            linker
+                .func_wrap(
+                    "env",
+                    "host_record_usage",
+                    move |mut caller: Caller<'_, StoreData>,
+                          provider_ptr: u32,
+                          provider_len: u32,
+                          model_ptr: u32,
+                          model_len: u32,
+                          input_tokens: u32,
+                          output_tokens: u32,
+                          cost_bytes_ptr: u32| {
+                        let memory = caller
+                            .get_export("memory")
+                            .and_then(|e| e.into_memory())
+                            .unwrap();
+                        let mem_data = memory.data(&caller);
+
+                        // Read provider
+                        let provider_start = provider_ptr as usize;
+                        let provider_end = provider_start + provider_len as usize;
+                        if provider_end > mem_data.len() {
+                            return;
+                        }
+                        let provider =
+                            core::str::from_utf8(&mem_data[provider_start..provider_end])
+                                .unwrap_or("");
+
+                        // Read model
+                        let model_start = model_ptr as usize;
+                        let model_end = model_start + model_len as usize;
+                        if model_end > mem_data.len() {
+                            return;
+                        }
+                        let model =
+                            core::str::from_utf8(&mem_data[model_start..model_end]).unwrap_or("");
+
+                        // Read cost (f64 as 8 bytes)
+                        let cost_start = cost_bytes_ptr as usize;
+                        let cost_end = cost_start + 8;
+                        if cost_end > mem_data.len() {
+                            return;
+                        }
+                        let cost_bytes: [u8; 8] =
+                            mem_data[cost_start..cost_end].try_into().unwrap_or([0; 8]);
+                        let cost = f64::from_le_bytes(cost_bytes);
+
+                        record_usage_fn(provider, model, input_tokens, output_tokens, cost);
+                    },
+                )
+                .map_err(|e| {
+                    FrameworkError::WasmLoad(format!("failed to define host_record_usage: {}", e))
+                })?;
+        }
+
+        // Define host function: host_check_budget() -> u32
+        if let Some(check_budget_fn) = check_budget_fn.clone() {
+            linker
+                .func_wrap(
+                    "env",
+                    "host_check_budget",
+                    move |_: Caller<'_, StoreData>| -> u32 { check_budget_fn() },
+                )
+                .map_err(|e| {
+                    FrameworkError::WasmLoad(format!("failed to define host_check_budget: {}", e))
+                })?;
+        }
+
+        // Define host function: host_emit_chunk(callback_id, chunk_ptr, chunk_len)
+        if let Some(emit_chunk_fn) = emit_chunk_fn.clone() {
+            linker
+                .func_wrap(
+                    "env",
+                    "host_emit_chunk",
+                    move |mut caller: Caller<'_, StoreData>,
+                          callback_id: u32,
+                          chunk_ptr: u32,
+                          chunk_len: u32| {
+                        let memory = caller
+                            .get_export("memory")
+                            .and_then(|e| e.into_memory())
+                            .unwrap();
+                        let mem_data = memory.data(&caller);
+
+                        let chunk_start = chunk_ptr as usize;
+                        let chunk_end = chunk_start + chunk_len as usize;
+                        if chunk_end > mem_data.len() {
+                            return;
+                        }
+                        let chunk =
+                            core::str::from_utf8(&mem_data[chunk_start..chunk_end]).unwrap_or("");
+
+                        emit_chunk_fn(callback_id, chunk);
+                    },
+                )
+                .map_err(|e| {
+                    FrameworkError::WasmLoad(format!("failed to define host_emit_chunk: {}", e))
+                })?;
+        }
+
         // Also define unknown imports as traps for compatibility
         linker
             .define_unknown_imports_as_traps(&module)
@@ -493,6 +898,13 @@ impl WasmtimePlugin {
             read_data_fn: Some(read_data_fn),
             write_data_fn: Some(write_data_fn),
             read_config_fn: Some(read_config_fn),
+            get_secret_fn,
+            http_request_fn,
+            record_usage_fn,
+            check_budget_fn,
+            emit_chunk_fn,
+            emit_incoming_fn: None,
+            http_poll_fn: None,
         };
 
         let mut store = Store::new(engine, store_data);
@@ -561,13 +973,18 @@ impl WasmPlugin for WasmtimePlugin {
             &self.write_data_fn,
             &self.read_config_fn,
         ) {
-            let result = Self::create_instance_with_data_callbacks(
+            let result = Self::create_instance_with_all_callbacks(
                 &self.engine,
                 &self.wasm_bytes,
                 self.id.clone(),
                 read_fn.clone(),
                 write_fn.clone(),
                 config_fn.clone(),
+                self.get_secret_fn.clone(),
+                self.http_request_fn.clone(),
+                self.record_usage_fn.clone(),
+                self.check_budget_fn.clone(),
+                self.emit_chunk_fn.clone(),
             );
             match result {
                 Ok((_instance, mut store, memory, _on_tick, on_event)) => {

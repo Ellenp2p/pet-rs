@@ -34,10 +34,23 @@ pub use crate::context::builder::ContextBuilder;
 pub use crate::context::context_impl::{Context, HistoryEntry};
 pub use crate::context::window::ContextWindow;
 
-// Communication modules
-pub use crate::communication::channel::{CLIChannel, Channel, ChannelTrait, ChannelType};
+// Communication modules (legacy)
+pub use crate::communication::channel::{CLIChannel, Channel, ChannelTrait};
 pub use crate::communication::message::{Message, MessageType};
-pub use crate::communication::router::{MessageHandler, MessageRouter};
+pub use crate::communication::router::MessageRouter;
+
+// Channel modules (new - WASM plugin channels)
+#[cfg(feature = "wasm-plugin")]
+pub use crate::channels::ChannelPluginManager;
+#[cfg(feature = "wasm-plugin")]
+pub use crate::channels::WasmChannelPlugin;
+pub use crate::channels::{
+    ChannelAdapter, ChannelConfig, ChannelError, ChannelMessage, ChannelStatus, ChannelType,
+    MediaType, MessageContent, MessageHandler, OutboundMessage, SenderInfo, SessionId,
+};
+
+// Session modules
+pub use crate::session::{Session, SessionConfig, SessionManager, SessionPermissions, SessionType};
 
 // Plugin modules
 pub use crate::plugins::capabilities::{Capability, CapabilityProvider, CapabilityRegistry};
@@ -47,6 +60,17 @@ pub use crate::plugins::loader::PluginLoader;
 pub use crate::plugins::manifest::PluginManifestLoader;
 pub use crate::plugins::slots::{Slot, SlotManager, SlotRegistration};
 pub use crate::plugins::validator::{PluginValidator, ValidationResult};
+
+// AI modules
+pub use crate::ai::adapters::{AnthropicProvider, OpenAIProvider};
+pub use crate::ai::budget::{BudgetConfig, BudgetStatus, BudgetTracker};
+pub use crate::ai::pricing::PricingTable;
+pub use crate::ai::rate_limiter::RateLimiter;
+pub use crate::ai::usage::{UsageStats, UsageTracker};
+pub use crate::ai::{
+    AIError, AIProvider, AIProviderManager, ChatMessage, ChatResponse, ProviderConfig,
+    ProviderType, TokenUsage,
+};
 
 // WASM modules
 #[cfg(feature = "wasm-plugin")]

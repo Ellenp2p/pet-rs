@@ -3,18 +3,23 @@
 //! 使用 ratatui 渲染界面。
 
 use ratatui::{
-    layout::{Constraint, Direction, Layout, Position},
+    layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, Paragraph, Tabs, Wrap},
+    widgets::{
+        Block, Borders, List, ListItem, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState,
+        Tabs, Wrap,
+    },
     Frame,
 };
+use ratatui_interact::components::scrollable_content::{ScrollableContent, ScrollableContentStyle};
+use ratatui_interact::components::TextArea;
 
 use crate::app::App;
 use crate::location::Location;
 
 /// 渲染 UI
-pub fn render(f: &mut Frame, app: &App) {
+pub fn render(f: &mut Frame, app: &mut App) {
     // UI 渲染逻辑
 
     // 主布局：标题、内容、Toast、输入
@@ -134,35 +139,82 @@ fn render_pet(f: &mut Frame, area: ratatui::layout::Rect, app: &App) {
 }
 
 /// 渲染对话历史
-fn render_messages(f: &mut Frame, area: ratatui::layout::Rect, app: &App) {
-    let messages: Vec<ListItem> = app
-        .messages
-        .iter()
-        .rev()
-        .take(area.height as usize - 2) // 减去边框
-        .map(|msg| {
-            let style = if msg.is_system {
-                Style::default().fg(Color::Gray)
-            } else if msg.sender == "你" {
-                Style::default().fg(Color::Green)
+fn render_messages(f: &mut Frame, area: ratatui::layout::Rect, app: &mut App) {
+    // 防止无效区域导致的问题
+    if area.width < 4 || area.height < 2 {
+        return;
+    }
+
+    // 计算可用宽度
+    let width = (area.width as usize).saturating_sub(4);
+    if width < 10 {
+        return;
+    }
+
+    // 转换消息为行（处理自动折行）
+    let mut all_lines: Vec<String> = Vec::new();
+
+    for msg in &app.messages {
+        let sender = format!("[{}]: ", msg.sender);
+        let sender_len = sender.len();
+        let max_chars = width.saturating_sub(sender_len).max(10);
+
+        for line in msg.content.lines().collect::<Vec<_>>() {
+            if line.len() > max_chars {
+                // 折行处理
+                let chars: Vec<char> = line.chars().collect();
+                let mut i = 0;
+                while i < chars.len() {
+                    let end = (i + max_chars).min(chars.len());
+                    let chunk: String = chars[i..end].iter().collect();
+                    if i == 0 {
+                        all_lines.push(format!("{}{}", sender, chunk));
+                    } else {
+                        all_lines.push(chunk);
+                    }
+                    i = end;
+                }
             } else {
-                Style::default().fg(Color::Cyan)
-            };
+                all_lines.push(format!("{}{}", sender, line));
+            }
+        }
+    }
 
-            let content = format!("[{}]: {}", msg.sender, msg.content);
-            ListItem::new(content).style(style)
-        })
-        .collect();
+    // 更新 scroll_state
+    app.scroll_state.set_lines(all_lines);
+    app.scroll_state.scroll_to_bottom(area.height as usize);
 
-    let messages_list = List::new(messages)
-        .block(Block::default().title("对话历史").borders(Borders::ALL))
-        .style(Style::default().fg(Color::White));
+    // 渲染 ScrollableContent，预留滚动条空间
+    let scrollbar_width = 1u16;
+    let content_width = area.width.saturating_sub(scrollbar_width);
+    let content_area =
+        ratatui::layout::Rect::new(area.x, area.y, area.x + content_width, area.y + area.height);
 
-    f.render_widget(messages_list, area);
+    let content = ScrollableContent::new(&app.scroll_state)
+        .title("对话历史")
+        .style(ScrollableContentStyle::default());
+    f.render_widget(content, content_area);
+
+    // 渲染滚动条
+    let total = app.scroll_state.line_count();
+    let visible = app.scroll_state.visible_lines(area.height as usize).len();
+    let offset = app.scroll_state.scroll_offset();
+
+    if total > visible {
+        let scrollbar_area = ratatui::layout::Rect::new(
+            area.x + content_width,
+            area.y,
+            area.x + area.width,
+            area.y + area.height,
+        );
+        let mut state = ScrollbarState::new(total).position(offset);
+        let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight);
+        f.render_stateful_widget(scrollbar, scrollbar_area, &mut state);
+    }
 }
 
 /// 渲染输入区域（使用 tui-textarea）
-fn render_input(f: &mut Frame, area: ratatui::layout::Rect, app: &App) {
+fn render_input(f: &mut Frame, area: ratatui::layout::Rect, app: &mut App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -172,7 +224,8 @@ fn render_input(f: &mut Frame, area: ratatui::layout::Rect, app: &App) {
         .split(area);
 
     // 渲染 tui-textarea
-    f.render_widget(&app.textarea, chunks[0]);
+    let textarea = TextArea::default().label("输入消息").with_border(true);
+    textarea.render_stateful(f, chunks[0], &mut app.textarea_state);
 
     // 快捷键提示
     let shortcuts = Line::from(vec![
@@ -192,7 +245,7 @@ fn render_input(f: &mut Frame, area: ratatui::layout::Rect, app: &App) {
 }
 
 /// 渲染 Toast 通知
-fn render_toasts(f: &mut Frame, area: ratatui::layout::Rect, app: &App) {
+fn render_toasts(f: &mut Frame, area: ratatui::layout::Rect, app: &mut App) {
     let toast_items: Vec<ListItem> = app
         .toasts
         .iter()
