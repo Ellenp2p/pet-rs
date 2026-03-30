@@ -1,112 +1,132 @@
-//! 配置管理模块
+//! 简化配置模块
 
-use crate::ai::budget::BudgetConfig;
-use crate::ai::provider::ProviderConfig;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::PathBuf;
+
+use agent_pet_rs::prelude::{AIConfig, BudgetConfig, ProviderConfig, ProviderType};
 
 /// 应用配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Config {
-    pub settings: Settings,
-    pub ai: AIConfig,
+pub struct AppConfig {
+    pub ai: AiConfig,
+    pub pet: PetConfig,
 }
 
+/// AI 配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Settings {
-    pub memory_path: PathBuf,
-    pub window_width: u16,
-    pub window_height: u16,
-    pub animation_speed: u64,
-    pub dog_size: DogSize,
+pub struct AiConfig {
+    pub default_provider: String,
+    pub providers: HashMap<String, AiProviderConfig>,
 }
 
+/// AI 提供商配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AIConfig {
-    pub auto_switch: bool,
-    pub switch_order: Vec<String>,
-    pub providers: Vec<ProviderConfig>,
-    pub budget: BudgetConfig,
+pub struct AiProviderConfig {
+    pub enabled: bool,
+    pub api_key: String,
+    pub model: String,
+    #[serde(default)]
+    pub api_base: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
-pub enum DogSize {
-    Small,
-    Medium,
-    Large,
+/// 宠物配置
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PetConfig {
+    #[serde(default = "default_pet_name")]
+    pub name: String,
 }
 
-impl Default for Config {
+fn default_pet_name() -> String {
+    "Pet".to_string()
+}
+
+impl Default for AppConfig {
     fn default() -> Self {
-        let home = dirs::home_dir().unwrap_or_default();
         Self {
-            settings: Settings {
-                memory_path: home.join(".pet_agent").join("memory.json"),
-                window_width: 80,
-                window_height: 24,
-                animation_speed: 200,
-                dog_size: DogSize::Medium,
-            },
-            ai: AIConfig {
-                auto_switch: true,
-                switch_order: vec![
-                    "openrouter".to_string(),
+            ai: AiConfig {
+                default_provider: "openai".to_string(),
+                providers: HashMap::from([(
                     "openai".to_string(),
-                    "ollama".to_string(),
-                ],
-                providers: Vec::new(),
-                budget: BudgetConfig::default(),
+                    AiProviderConfig {
+                        enabled: true,
+                        api_key: String::new(),
+                        model: "gpt-4o-mini".to_string(),
+                        api_base: None,
+                    },
+                )]),
+            },
+            pet: PetConfig {
+                name: "Pet".to_string(),
             },
         }
     }
 }
 
-impl Config {
-    pub fn config_path() -> PathBuf {
-        dirs::config_dir()
-            .unwrap_or_default()
-            .join("pet_agent")
-            .join("config.toml")
+impl AppConfig {
+    /// 获取配置目录路径
+    pub fn config_dir() -> PathBuf {
+        dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(".pet_agent")
     }
 
-    pub fn load() -> anyhow::Result<Self> {
+    /// 获取配置文件路径
+    pub fn config_path() -> PathBuf {
+        Self::config_dir().join("config.toml")
+    }
+
+    /// 加载配置
+    pub fn load() -> Result<Self, Box<dyn std::error::Error>> {
         let path = Self::config_path();
         if path.exists() {
             let content = std::fs::read_to_string(&path)?;
-            let config: Self = toml::from_str(&content)?;
+            let config: AppConfig = toml::from_str(&content)?;
             Ok(config)
         } else {
-            Ok(Self::default())
+            // 创建默认配置
+            let config = Self::default();
+            config.save()?;
+            Ok(config)
         }
     }
 
-    pub fn save(&self) -> anyhow::Result<()> {
+    /// 保存配置
+    pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let dir = Self::config_dir();
+        std::fs::create_dir_all(&dir)?;
+
         let path = Self::config_path();
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
         let content = toml::to_string_pretty(self)?;
         std::fs::write(&path, content)?;
+
         Ok(())
     }
 
-    pub fn needs_setup(&self) -> bool {
-        self.ai.providers.is_empty()
-            || self
-                .ai
-                .providers
-                .iter()
-                .all(|p: &ProviderConfig| p.api_key().is_empty() || !p.enabled)
-    }
+    /// 转换为框架的 AIConfig
+    pub fn to_ai_config(&self) -> AIConfig {
+        let providers: HashMap<String, ProviderConfig> = self
+            .ai
+            .providers
+            .iter()
+            .filter(|(_, p)| p.enabled)
+            .map(|(name, p)| {
+                let provider_type = ProviderType::from_name(name).unwrap_or(ProviderType::Custom);
+                let mut config = ProviderConfig::new(provider_type, &p.api_key);
+                config.model = p.model.clone();
+                if let Some(base) = &p.api_base {
+                    config.api_base = Some(base.clone());
+                }
+                (name.clone(), config)
+            })
+            .collect();
 
-    pub fn memory_path(&self) -> PathBuf {
-        self.settings.memory_path.clone()
-    }
-
-    pub fn usage_path(&self) -> PathBuf {
-        dirs::home_dir()
-            .unwrap_or_default()
-            .join(".pet_agent")
-            .join("usage.json")
+        AIConfig {
+            default_provider: self.ai.default_provider.clone(),
+            auto_switch: true,
+            switch_order: providers.keys().cloned().collect(),
+            providers,
+            budget: BudgetConfig::default(),
+        }
     }
 }

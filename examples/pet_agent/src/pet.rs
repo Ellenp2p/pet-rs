@@ -1,294 +1,113 @@
-//! 小狗显示和状态模块
-//!
-//! 管理小狗的显示、状态和动画。
+//! 宠物逻辑模块
 
-use crate::config::DogSize;
-use crate::location::Location;
+use serde::{Deserialize, Serialize};
 
-/// 小狗状态
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum PetState {
-    /// 空闲
-    Idle,
-    /// 思考中
-    Thinking,
-    /// 开心
-    Happy,
-    /// 睡觉
-    Sleeping,
-    /// 工作中
-    Working,
-    /// 玩耍中
-    Playing,
-}
-
-impl PetState {
-    pub fn name(&self) -> &'static str {
-        match self {
-            PetState::Idle => "发呆",
-            PetState::Thinking => "思考",
-            PetState::Happy => "开心",
-            PetState::Sleeping => "睡觉",
-            PetState::Working => "工作",
-            PetState::Playing => "玩耍",
-        }
-    }
-}
-
-/// 小狗结构
+/// 宠物状态
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Pet {
-    /// 名字
     pub name: String,
-    /// 当前状态
-    pub state: PetState,
-    /// 当前位置
-    pub location: Location,
-    /// 精力 (0-100)
-    pub energy: f32,
-    /// 心情 (0-100)
-    pub happiness: f32,
-    /// 小狗大小
-    pub size: DogSize,
+    pub energy: f32, // 0.0 ~ 1.0
+    pub mood: f32,   // 0.0 ~ 1.0
+    pub last_update: u64,
 }
 
 impl Pet {
-    /// 创建新小狗
     pub fn new(name: &str) -> Self {
         Self {
             name: name.to_string(),
-            state: PetState::Idle,
-            location: Location::Indoor,
-            energy: 100.0,
-            happiness: 100.0,
-            size: DogSize::Medium,
+            energy: 0.8,
+            mood: 0.8,
+            last_update: current_timestamp(),
         }
     }
 
-    /// 获取 ASCII Art
-    pub fn ascii_art(&self) -> Vec<String> {
-        match self.size {
-            DogSize::Small => self.small_art(),
-            DogSize::Medium => self.medium_art(),
-            DogSize::Large => self.large_art(),
+    /// 每秒更新状态
+    pub fn update(&mut self) {
+        let now = current_timestamp();
+        let elapsed = now - self.last_update;
+        if elapsed == 0 {
+            return;
         }
+
+        // 能量缓慢下降 (每秒 -0.001)
+        self.energy = (self.energy - elapsed as f32 * 0.001).max(0.0);
+
+        // 心情与能量相关
+        self.mood = (self.energy * 0.7 + 0.3).min(1.0);
+
+        self.last_update = now;
     }
 
-    /// 小号 ASCII Art (5 行)
-    fn small_art(&self) -> Vec<String> {
-        match self.state {
-            PetState::Idle => vec![
-                "  /\\_/\\   ".to_string(),
-                " ( o.o )  ".to_string(),
-                "  > ^ <   ".to_string(),
-                " /|   |\\  ".to_string(),
-                "(_|   |_) ".to_string(),
-            ],
-            PetState::Thinking => vec![
-                "  /\\_/\\   ".to_string(),
-                " ( o.o )  ".to_string(),
-                "  > ? <   ".to_string(),
-                " /|   |\\  ".to_string(),
-                "(_|   |_) 💭".to_string(),
-            ],
-            PetState::Happy => vec![
-                "  /\\_/\\   ".to_string(),
-                " ( ^.^ )  ".to_string(),
-                "  > w <   ".to_string(),
-                " /|   |\\  ".to_string(),
-                "(_|   |_) ".to_string(),
-            ],
-            PetState::Sleeping => vec![
-                "  /\\_/\\   ".to_string(),
-                " ( -.- )  ".to_string(),
-                "  > ^ <   ".to_string(),
-                " /|   |\\  ".to_string(),
-                "(_|   |_) zZz".to_string(),
-            ],
-            PetState::Working => vec![
-                "  /\\_/\\   ".to_string(),
-                " ( o.o )  ".to_string(),
-                "  > ! <   ".to_string(),
-                " /|   |\\  ".to_string(),
-                "(_|   |_) 🔧".to_string(),
-            ],
-            PetState::Playing => vec![
-                "  /\\_/\\   ".to_string(),
-                " ( ^.^ )  ".to_string(),
-                "  > ~ <   ".to_string(),
-                " /|   |\\  ".to_string(),
-                "(_|   |_) ⚽".to_string(),
-            ],
-        }
-    }
-
-    /// 中号 ASCII Art (7 行)
-    fn medium_art(&self) -> Vec<String> {
-        match self.state {
-            PetState::Idle => vec![
-                "    /\\_/\\     ".to_string(),
-                "   ( o.o )    ".to_string(),
-                "    > ^ <     ".to_string(),
-                "   /|   |\\    ".to_string(),
-                "  (_|   |_)   ".to_string(),
-                "".to_string(),
-                format!("  {} 正在发呆...", self.name),
-            ],
-            PetState::Thinking => vec![
-                "    /\\_/\\     ".to_string(),
-                "   ( o.o )    ".to_string(),
-                "    > ? <     ".to_string(),
-                "   /|   |\\    ".to_string(),
-                "  (_|   |_)   ".to_string(),
-                "    💭         ".to_string(),
-                format!("  {} 正在思考...", self.name),
-            ],
-            PetState::Happy => vec![
-                "    /\\_/\\     ".to_string(),
-                "   ( ^.^ )    ".to_string(),
-                "    > w <     ".to_string(),
-                "   /|   |\\    ".to_string(),
-                "  (_|   |_)   ".to_string(),
-                "".to_string(),
-                format!("  {} 很开心！", self.name),
-            ],
-            PetState::Sleeping => vec![
-                "    /\\_/\\     ".to_string(),
-                "   ( -.- ) zZz".to_string(),
-                "    > ^ <     ".to_string(),
-                "   /|   |\\    ".to_string(),
-                "  (_|   |_)   ".to_string(),
-                "".to_string(),
-                format!("  {} 正在睡觉", self.name),
-            ],
-            PetState::Working => vec![
-                "    /\\_/\\     ".to_string(),
-                "   ( o.o )    ".to_string(),
-                "    > ! <     ".to_string(),
-                "   /|   |\\    ".to_string(),
-                "  (_|   |_) 🔧".to_string(),
-                "".to_string(),
-                format!("  {} 正在工作...", self.name),
-            ],
-            PetState::Playing => vec![
-                "    /\\_/\\     ".to_string(),
-                "   ( ^.^ )    ".to_string(),
-                "    > ~ <  ⚽ ".to_string(),
-                "   /|   |\\    ".to_string(),
-                "  (_|   |_)   ".to_string(),
-                "".to_string(),
-                format!("  {} 正在玩耍！", self.name),
-            ],
-        }
-    }
-
-    /// 大号 ASCII Art (10 行)
-    fn large_art(&self) -> Vec<String> {
-        match self.state {
-            PetState::Idle => vec![
-                "       /\\_/\\      ".to_string(),
-                "      ( o.o )     ".to_string(),
-                "       > ^ <      ".to_string(),
-                "      /|   |\\     ".to_string(),
-                "     (_|   |_)    ".to_string(),
-                "      /     \\     ".to_string(),
-                "     (       )    ".to_string(),
-                "".to_string(),
-                format!("    {} 正在发呆...", self.name),
-                "      状态: 空闲  ".to_string(),
-            ],
-            PetState::Thinking => vec![
-                "       /\\_/\\      ".to_string(),
-                "      ( o.o )     ".to_string(),
-                "       > ? <      ".to_string(),
-                "      /|   |\\     ".to_string(),
-                "     (_|   |_)    ".to_string(),
-                "      /     \\     ".to_string(),
-                "     (   💭   )   ".to_string(),
-                "".to_string(),
-                format!("    {} 正在思考...", self.name),
-                "      状态: 思考中".to_string(),
-            ],
-            PetState::Happy => vec![
-                "       /\\_/\\      ".to_string(),
-                "      ( ^.^ )     ".to_string(),
-                "       > w <      ".to_string(),
-                "      /|   |\\     ".to_string(),
-                "     (_|   |_)    ".to_string(),
-                "      /     \\     ".to_string(),
-                "     (  ^_^  )    ".to_string(),
-                "".to_string(),
-                format!("    {} 很开心！", self.name),
-                "      状态: 开心  ".to_string(),
-            ],
-            PetState::Sleeping => vec![
-                "       /\\_/\\      ".to_string(),
-                "      ( -.- ) zZz ".to_string(),
-                "       > ^ <      ".to_string(),
-                "      /|   |\\     ".to_string(),
-                "     (_|   |_)    ".to_string(),
-                "      /     \\     ".to_string(),
-                "     (  - -  )    ".to_string(),
-                "".to_string(),
-                format!("    {} 正在睡觉", self.name),
-                "      状态: 睡觉  ".to_string(),
-            ],
-            PetState::Working => vec![
-                "       /\\_/\\      ".to_string(),
-                "      ( o.o )     ".to_string(),
-                "       > ! <      ".to_string(),
-                "      /|   |\\     ".to_string(),
-                "     (_|   |_) 🔧 ".to_string(),
-                "      /     \\     ".to_string(),
-                "     (  ! !  )    ".to_string(),
-                "".to_string(),
-                format!("    {} 正在工作...", self.name),
-                "      状态: 工作中".to_string(),
-            ],
-            PetState::Playing => vec![
-                "       /\\_/\\      ".to_string(),
-                "      ( ^.^ )     ".to_string(),
-                "       > ~ <  ⚽  ".to_string(),
-                "      /|   |\\     ".to_string(),
-                "     (_|   |_)    ".to_string(),
-                "      /     \\     ".to_string(),
-                "     (  ~ ~  )    ".to_string(),
-                "".to_string(),
-                format!("    {} 正在玩耍！", self.name),
-                "      状态: 玩耍中".to_string(),
-            ],
-        }
-    }
-
-    /// 获取状态文本
-    pub fn status_text(&self) -> String {
+    /// 喂食
+    pub fn feed(&mut self) -> String {
+        self.update();
+        let gain = 0.2;
+        self.energy = (self.energy + gain).min(1.0);
+        self.mood = (self.mood + 0.1).min(1.0);
         format!(
-            "{} 位置: {} | 精力: {:.0}% | 心情: {:.0}%",
-            self.name,
-            self.location.name(),
-            self.energy,
-            self.happiness
+            "*nom nom* Thanks for the food! (+{:.0}% energy)",
+            gain * 100.0
         )
     }
 
-    /// 设置状态
-    pub fn set_state(&mut self, state: PetState) {
-        self.state = state;
+    /// 玩耍
+    pub fn play(&mut self) -> String {
+        self.update();
+        let energy_cost = 0.05;
+        let mood_gain = 0.15;
+        if self.energy < energy_cost {
+            return "Too tired to play... Need some food first!".to_string();
+        }
+        self.energy = (self.energy - energy_cost).max(0.0);
+        self.mood = (self.mood + mood_gain).min(1.0);
+        format!(
+            "Wheee! That was fun! (+{:.0}% mood, -{:.0}% energy)",
+            mood_gain * 100.0,
+            energy_cost * 100.0
+        )
     }
 
-    /// 移动到新位置
-    pub fn move_to(&mut self, location: Location) {
-        self.location = location;
-        // 移动消耗精力
-        self.energy = (self.energy - 5.0).max(0.0);
+    /// 休息
+    pub fn rest(&mut self) -> String {
+        self.update();
+        let gain = 0.3;
+        self.energy = (self.energy + gain).min(1.0);
+        format!("*yawn* Feeling refreshed! (+{:.0}% energy)", gain * 100.0)
     }
 
-    /// 恢复精力
-    pub fn restore_energy(&mut self, amount: f32) {
-        self.energy = (self.energy + amount).min(100.0);
-    }
+    /// 获取状态描述
+    pub fn status_description(&self) -> String {
+        let energy_bar = bar(self.energy);
+        let mood_bar = bar(self.mood);
+        let mood_emoji = if self.mood > 0.7 {
+            "😊"
+        } else if self.mood > 0.4 {
+            "😐"
+        } else {
+            "😢"
+        };
 
-    /// 提升心情
-    pub fn boost_happiness(&mut self, amount: f32) {
-        self.happiness = (self.happiness + amount).min(100.0);
+        format!(
+            "{} {}\n  Energy: {}\n  Mood:   {}",
+            self.name, mood_emoji, energy_bar, mood_bar
+        )
     }
+}
+
+fn bar(value: f32) -> String {
+    let filled = (value * 10.0) as usize;
+    let empty = 10 - filled;
+    format!(
+        "[{}{}] {:.0}%",
+        "█".repeat(filled),
+        "░".repeat(empty),
+        value * 100.0
+    )
+}
+
+fn current_timestamp() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
 }

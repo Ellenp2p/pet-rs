@@ -1,184 +1,187 @@
-//! 桌面宠物 Agent - TUI 示例
-//!
-//! 一个基于 TUI 的桌面宠物，可以与 AI 对话、执行任务、记住偏好。
+//! 简化版 Pet Agent - TUI 示例
 //!
 //! ## 运行
 //!
 //! ```bash
-//! cargo run --bin pet-agent
+//! cargo run --example pet_agent
 //! ```
 
-mod ai;
-mod animation;
 mod app;
 mod commands;
 mod config;
-mod event;
-mod location;
-mod log;
-mod memory;
 mod pet;
-mod tui;
 mod ui;
 
-use tui::{Event, Tui};
+use crossterm::{
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind},
+    execute,
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+};
+use ratatui::{backend::CrosstermBackend, Terminal};
+use std::io;
+use std::time::{Duration, Instant};
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    // 创建 TUI
-    let mut tui = Tui::new()?
-        .tick_rate(4.0)
-        .frame_rate(30.0)
-        .mouse(true);
+use agent_pet_rs::prelude::*;
+use app::AppState;
+use commands::Command;
+use config::AppConfig;
+use ui::draw_ui;
 
-    // 进入终端模式
-    tui.enter()?;
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // 1. 加载配置
+    let config = AppConfig::load()?;
 
-    // 初始化应用（此时 TUI 已创建，可以传递 event_tx）
-    let event_tx = Some(tui.event_tx.clone());
-    let mut app = app::App::new(event_tx)?;
+    // 2. 检查是否有 API Key
+    let has_key = config
+        .ai
+        .providers
+        .values()
+        .any(|p| p.enabled && !p.api_key.is_empty());
 
-    // 如果需要设置，先进行设置
-    if app.needs_setup {
-        // 先退出 TUI 模式
-        tui.exit()?;
-        println!("欢迎使用桌面宠物 Agent！");
-        println!("请输入你的 OpenRouter API Key:");
-        println!("(可以在 https://openrouter.ai/keys 获取)");
-        print!("> ");
-        std::io::Write::flush(&mut std::io::stdout())?;
-
-        let mut api_key = String::new();
-        std::io::stdin().read_line(&mut api_key)?;
-        let api_key = api_key.trim();
-
-        if api_key.is_empty() {
-            println!("API Key 不能为空！");
-            return Ok(());
-        }
-
-        // 创建提供商配置
-        let provider_config = crate::ai::provider::ProviderConfig::new(
-            crate::ai::provider::ProviderType::OpenRouter,
-            api_key,
-        );
-        app.config.ai.providers.push(provider_config);
-        app.config.save()?;
-        println!("配置已保存！启动宠物...\n");
-
-        // 重新进入 TUI 模式
-        tui.enter()?;
+    if !has_key {
+        println!("请先在 ~/.pet_agent/config.toml 中配置 API Key");
+        println!("示例配置:");
+        println!();
+        println!("[ai]");
+        println!("default_provider = \"openai\"");
+        println!();
+        println!("[ai.providers.openai]");
+        println!("enabled = true");
+        println!("api_key = \"sk-...\"");
+        println!("model = \"gpt-4o-mini\"");
+        return Ok(());
     }
 
-    // 添加欢迎消息
-    app.messages.push(app::DisplayMessage::system(&format!(
-        "欢迎！我是 {}，你的智能宠物助手！🐕",
-        app.pet.name
-    )));
-    app.messages.push(app::DisplayMessage::system(
-        "输入消息和我聊天，或者按 /help 查看帮助",
-    ));
+    // 3. 创建 AI Manager
+    let ai_config = config.to_ai_config();
+    let ai = AIProviderManager::new(&ai_config)?;
 
-    // 主循环
-    loop {
-        // 处理事件
-        if let Some(event) = tui.next().await {
-            match event {
-                Event::Init => {
-                    // 初始化
-                }
-                Event::Quit => {
-                    break;
-                }
-                Event::Error => {
-                    // 错误处理
-                }
-                Event::Tick => {
-                    // 更新游戏状态
-                    app.update_toasts();  // 更新 Toast 通知
-                }
-                Event::Render => {
-                    // 渲染 UI
-                    tui.draw(|f| ui::render(f, &mut app))?;
-                }
-                Event::Key(key) => {
-                    event::handle_key_event(key, &mut app).await?;
-                }
-                Event::Mouse(mouse) => {
-                    event::handle_mouse_event(mouse, &mut app).await?;
-                }
-                Event::Resize(_, _) => {
-                    // 处理窗口大小变化
-                }
-                Event::AiChunk(chunk) => {
-                    // 流式响应片段 - 实时显示
-                    if let Some(last) = app.messages.last_mut() {
-                        if last.sender == app.pet.name && !last.is_system {
-                            last.content.push_str(&chunk);
-                        } else {
-                            app.messages.push(crate::app::DisplayMessage::pet(&app.pet.name, &chunk));
-                        }
-                    } else {
-                        app.messages.push(crate::app::DisplayMessage::pet(&app.pet.name, &chunk));
-                    }
-                }
-                Event::AiComplete(response) => {
-                    // AI 响应完成 - 更新统计等
-                    app.is_thinking = false;
-                    app.pet.set_state(crate::pet::PetState::Happy);
-                    app.add_toast("消息发送成功", crate::app::ToastType::Success);
-                }
-                Event::AiResponse(response) => {
-                    // 处理 AI 响应
-                    app.messages
-                        .push(crate::app::DisplayMessage::pet(&app.pet.name, &response));
-                    app.is_thinking = false;
-                    app.pet.set_state(crate::pet::PetState::Happy);
-                    app.add_toast("消息发送成功", crate::app::ToastType::Success);
-                }
-                Event::AiError(error) => {
-                    // 处理 AI 错误 - 简化错误消息
-                    let short_error = if error.contains("Network error") {
-                        "网络错误".to_string()
-                    } else if error.contains("API error") {
-                        "API 错误".to_string()
-                    } else if error.contains("BudgetExceeded") {
-                        "预算超限".to_string()
-                    } else if error.contains("RateLimited") {
-                        "速率限制".to_string()
-                    } else {
-                        "未知错误".to_string()
-                    };
-                    app.messages
-                        .push(crate::app::DisplayMessage::system(&format!("⚠️ {}", short_error)));
-                    app.is_thinking = false;
-                    app.pet.set_state(crate::pet::PetState::Idle);
-                    app.add_toast(&short_error, crate::app::ToastType::Error);
-                }
-                Event::Toast(message, is_error) => {
-                    // 处理 Toast 通知
-                    let toast_type = if is_error {
-                        crate::app::ToastType::Error
-                    } else {
-                        crate::app::ToastType::Info
-                    };
-                    app.add_toast(&message, toast_type);
+    // 4. 加载或创建状态
+    let mut state = AppState::load_or_default(ai, config)?;
+
+    // 5. 添加欢迎消息
+    if state.messages.is_empty() {
+        state.add_system_message(&format!("Welcome! I'm {} 🐕", state.pet.name));
+        state.add_system_message("Type /help for commands, or just chat!");
+    }
+
+    // 6. 初始化 TUI
+    enable_raw_mode()?;
+    let mut stdout = io::stdout();
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend)?;
+
+    // 7. 主循环
+    let mut last_tick = Instant::now();
+    let tick_rate = Duration::from_secs(1); // 每秒 tick
+
+    let result = run_app(&mut terminal, &mut state, &mut last_tick, tick_rate);
+
+    // 8. 恢复终端
+    disable_raw_mode()?;
+    execute!(
+        terminal.backend_mut(),
+        LeaveAlternateScreen,
+        DisableMouseCapture
+    )?;
+    terminal.show_cursor()?;
+
+    // 9. 处理结果
+    if let Err(err) = result {
+        eprintln!("Error: {}", err);
+    }
+
+    Ok(())
+}
+
+fn run_app(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    state: &mut AppState,
+    last_tick: &mut Instant,
+    tick_rate: Duration,
+) -> Result<(), Box<dyn std::error::Error>> {
+    while state.running {
+        // 更新宠物状态 (每秒)
+        if last_tick.elapsed() >= tick_rate {
+            state.pet.update();
+            *last_tick = Instant::now();
+        }
+
+        // 渲染 UI
+        terminal.draw(|f| draw_ui(f, state))?;
+
+        // 处理输入 (非阻塞)
+        let timeout = tick_rate
+            .checked_sub(last_tick.elapsed())
+            .unwrap_or_else(|| Duration::from_secs(0));
+
+        if event::poll(timeout)? {
+            if let Event::Key(key) = event::read()? {
+                if key.kind == KeyEventKind::Press {
+                    handle_key(key.code, state)?;
                 }
             }
         }
-
-        // 检查是否退出
-        if app.should_quit {
-            break;
-        }
     }
 
-    // 退出终端模式
-    tui.exit()?;
-
     // 保存状态
-    if let Err(e) = app.save() {
-        eprintln!("保存状态失败: {}", e);
+    state.save()?;
+
+    Ok(())
+}
+
+fn handle_key(key: KeyCode, state: &mut AppState) -> Result<(), Box<dyn std::error::Error>> {
+    match key {
+        KeyCode::Enter => {
+            let input = state.input.trim().to_string();
+            if input.is_empty() {
+                return Ok(());
+            }
+
+            state.input.clear();
+
+            if input.starts_with('/') {
+                // 处理命令
+                let cmd = Command::parse(&input);
+                if let Some(response) = cmd.execute(state) {
+                    state.add_system_message(&response);
+                }
+            } else {
+                // 发送到 AI
+                state.add_user_message(&input);
+
+                // 构建消息
+                let mut messages = vec![ChatMessage {
+                    role: "system".to_string(),
+                    content: format!(
+                        "You are {}, a cute virtual pet. Be friendly, concise, and helpful. Use emojis occasionally.",
+                        state.config.pet.name
+                    ),
+                }];
+                messages.extend(state.history.to_chat_messages());
+
+                // 调用 AI
+                match state.ai.chat(messages) {
+                    Ok(response) => {
+                        state.add_assistant_message(&response.content);
+                    }
+                    Err(e) => {
+                        state.add_system_message(&format!("Error: {}", e));
+                    }
+                }
+            }
+        }
+        KeyCode::Char(c) => {
+            state.input.push(c);
+        }
+        KeyCode::Backspace => {
+            state.input.pop();
+        }
+        KeyCode::Esc => {
+            state.running = false;
+        }
+        _ => {}
     }
 
     Ok(())

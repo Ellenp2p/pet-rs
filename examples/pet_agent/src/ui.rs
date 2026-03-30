@@ -1,281 +1,108 @@
-//! UI 渲染模块
-//!
-//! 使用 ratatui 渲染界面。
+//! 最小化 UI 渲染模块
 
 use ratatui::{
-    layout::{Constraint, Direction, Layout},
-    style::{Color, Modifier, Style},
+    layout::{Constraint, Direction, Layout, Rect},
+    style::{Color, Style},
     text::{Line, Span},
-    widgets::{
-        Block, Borders, List, ListItem, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState,
-        Tabs, Wrap,
-    },
+    widgets::{Block, Borders, Paragraph, Wrap},
     Frame,
 };
-use ratatui_interact::components::scrollable_content::{ScrollableContent, ScrollableContentStyle};
-use ratatui_interact::components::TextArea;
 
-use crate::app::App;
-use crate::location::Location;
+use crate::app::AppState;
 
-/// 渲染 UI
-pub fn render(f: &mut Frame, app: &mut App) {
-    // UI 渲染逻辑
-
-    // 主布局：标题、内容、Toast、输入
-    let main_chunks = Layout::default()
+/// 绘制 UI
+pub fn draw_ui(f: &mut Frame, state: &AppState) {
+    let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3), // 标题
-            Constraint::Min(10),   // 内容
-            Constraint::Length(6), // Toast 区域
-            Constraint::Length(5), // 输入区域
+            Constraint::Length(3), // 标题栏
+            Constraint::Min(5),    // 聊天区域
+            Constraint::Length(3), // 输入栏
         ])
         .split(f.area());
 
-    // 渲染标题
-    render_title(f, main_chunks[0]);
-
-    // 内容区域：左侧小狗、右侧对话历史
-    let content_chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage(40), // 小狗区域
-            Constraint::Percentage(60), // 对话历史
-        ])
-        .split(main_chunks[1]);
-
-    // 渲染小狗
-    render_pet(f, content_chunks[0], app);
-
-    // 渲染对话历史
-    render_messages(f, content_chunks[1], app);
-
-    // 渲染 Toast 通知
-    render_toasts(f, main_chunks[2], app);
-
-    // 渲染输入区域（使用 tui-textarea）
-    render_input(f, main_chunks[3], app);
+    draw_header(f, chunks[0], state);
+    draw_messages(f, chunks[1], state);
+    draw_input(f, chunks[2], state);
 }
 
-/// 渲染标题
-fn render_title(f: &mut Frame, area: ratatui::layout::Rect) {
-    let title = Paragraph::new(Line::from(vec![Span::styled(
-        "🐕 Buddy - 智能宠物助手",
-        Style::default()
-            .fg(Color::Yellow)
-            .add_modifier(Modifier::BOLD),
-    )]))
-    .block(Block::default().borders(Borders::ALL));
-    f.render_widget(title, area);
-}
+/// 绘制标题栏
+fn draw_header(f: &mut Frame, area: Rect, state: &AppState) {
+    let energy_pct = (state.pet.energy * 100.0) as u32;
+    let mood_emoji = if state.pet.mood > 0.7 {
+        "😊"
+    } else if state.pet.mood > 0.4 {
+        "😐"
+    } else {
+        "😢"
+    };
 
-/// 渲染小狗区域
-fn render_pet(f: &mut Frame, area: ratatui::layout::Rect, app: &App) {
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(3), // 位置标签
-            Constraint::Min(5),    // 小狗显示
-            Constraint::Length(4), // 提供商信息
-        ])
-        .split(area);
-
-    // 位置标签
-    let locations = Location::all();
-    let titles: Vec<String> = locations
-        .iter()
-        .map(|l| format!("{} {}", l.emoji(), l.name()))
-        .collect();
-
-    let tabs = Tabs::new(titles)
-        .block(Block::default().title("位置").borders(Borders::ALL))
-        .select(app.location_index)
-        .style(Style::default().fg(Color::White))
-        .highlight_style(
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD),
-        );
-    f.render_widget(tabs, chunks[0]);
-
-    // 小狗显示
-    let pet_art = app.pet.ascii_art();
-    let pet_text: Vec<Line> = pet_art
-        .iter()
-        .map(|line| Line::from(line.as_str()))
-        .collect();
-
-    let pet_paragraph = Paragraph::new(pet_text)
-        .block(
-            Block::default()
-                .title(format!(
-                    "{} {}",
-                    app.pet.location.emoji(),
-                    app.pet.location.name()
-                ))
-                .borders(Borders::ALL),
-        )
-        .style(Style::default().fg(Color::White));
-
-    f.render_widget(pet_paragraph, chunks[1]);
-
-    // 提供商信息
-    let provider_info = vec![
-        Line::from(vec![
-            Span::styled("🤖 ", Style::default().fg(Color::White)),
-            Span::styled(app.provider_status(), Style::default().fg(Color::Cyan)),
-        ]),
-        Line::from(vec![
-            Span::styled("📊 ", Style::default().fg(Color::White)),
-            Span::styled(app.usage_stats(), Style::default().fg(Color::Green)),
-        ]),
-    ];
-
-    let provider_paragraph =
-        Paragraph::new(provider_info).block(Block::default().title("AI").borders(Borders::ALL));
-
-    f.render_widget(provider_paragraph, chunks[2]);
-}
-
-/// 渲染对话历史
-fn render_messages(f: &mut Frame, area: ratatui::layout::Rect, app: &mut App) {
-    // 防止无效区域导致的问题
-    if area.width < 4 || area.height < 2 {
-        return;
-    }
-
-    // 计算可用宽度
-    let width = (area.width as usize).saturating_sub(4);
-    if width < 10 {
-        return;
-    }
-
-    // 转换消息为行（处理自动折行）
-    let mut all_lines: Vec<String> = Vec::new();
-
-    for msg in &app.messages {
-        let sender = format!("[{}]: ", msg.sender);
-        let sender_len = sender.len();
-        let max_chars = width.saturating_sub(sender_len).max(10);
-
-        for line in msg.content.lines().collect::<Vec<_>>() {
-            if line.len() > max_chars {
-                // 折行处理
-                let chars: Vec<char> = line.chars().collect();
-                let mut i = 0;
-                while i < chars.len() {
-                    let end = (i + max_chars).min(chars.len());
-                    let chunk: String = chars[i..end].iter().collect();
-                    if i == 0 {
-                        all_lines.push(format!("{}{}", sender, chunk));
-                    } else {
-                        all_lines.push(chunk);
-                    }
-                    i = end;
-                }
+    let header = Line::from(vec![
+        Span::styled(" Pet Agent ", Style::default().fg(Color::Cyan)),
+        Span::raw(state.pet.name.clone()),
+        Span::raw(" "),
+        Span::raw(mood_emoji),
+        Span::styled(
+            format!(" Energy: {}%", energy_pct),
+            Style::default().fg(if energy_pct > 30 {
+                Color::Green
             } else {
-                all_lines.push(format!("{}{}", sender, line));
-            }
-        }
-    }
-
-    // 更新 scroll_state
-    app.scroll_state.set_lines(all_lines);
-    app.scroll_state.scroll_to_bottom(area.height as usize);
-
-    // 渲染 ScrollableContent，预留滚动条空间
-    let scrollbar_width = 1u16;
-    let content_width = area.width.saturating_sub(scrollbar_width);
-    let content_area =
-        ratatui::layout::Rect::new(area.x, area.y, area.x + content_width, area.y + area.height);
-
-    let content = ScrollableContent::new(&app.scroll_state)
-        .title("对话历史")
-        .style(ScrollableContentStyle::default());
-    f.render_widget(content, content_area);
-
-    // 渲染滚动条
-    let total = app.scroll_state.line_count();
-    let visible = app.scroll_state.visible_lines(area.height as usize).len();
-    let offset = app.scroll_state.scroll_offset();
-
-    if total > visible {
-        let scrollbar_area = ratatui::layout::Rect::new(
-            area.x + content_width,
-            area.y,
-            area.x + area.width,
-            area.y + area.height,
-        );
-        let mut state = ScrollbarState::new(total).position(offset);
-        let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight);
-        f.render_stateful_widget(scrollbar, scrollbar_area, &mut state);
-    }
-}
-
-/// 渲染输入区域（使用 tui-textarea）
-fn render_input(f: &mut Frame, area: ratatui::layout::Rect, app: &mut App) {
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(3), // 输入框
-            Constraint::Length(2), // 快捷键提示
-        ])
-        .split(area);
-
-    // 渲染 tui-textarea
-    let textarea = TextArea::default().label("输入消息").with_border(true);
-    textarea.render_stateful(f, chunks[0], &mut app.textarea_state);
-
-    // 快捷键提示
-    let shortcuts = Line::from(vec![
-        Span::styled("[F1] 喂食  ", Style::default().fg(Color::Green)),
-        Span::styled("[F2] 玩耍  ", Style::default().fg(Color::Green)),
-        Span::styled("[F3] 休息  ", Style::default().fg(Color::Green)),
-        Span::styled("[F4] 探索  ", Style::default().fg(Color::Green)),
-        Span::styled("[Tab] 切换位置  ", Style::default().fg(Color::Yellow)),
-        Span::styled("[Esc] 退出", Style::default().fg(Color::Red)),
+                Color::Red
+            }),
+        ),
     ]);
 
-    let shortcuts_paragraph = Paragraph::new(shortcuts)
-        .block(Block::default().borders(Borders::NONE))
-        .wrap(Wrap { trim: true });
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::DarkGray));
 
-    f.render_widget(shortcuts_paragraph, chunks[1]);
+    let paragraph = Paragraph::new(header).block(block);
+    f.render_widget(paragraph, area);
 }
 
-/// 渲染 Toast 通知
-fn render_toasts(f: &mut Frame, area: ratatui::layout::Rect, app: &mut App) {
-    let toast_items: Vec<ListItem> = app
-        .toasts
+/// 绘制消息区域
+fn draw_messages(f: &mut Frame, area: Rect, state: &AppState) {
+    let messages: Vec<Line> = state
+        .messages
         .iter()
-        .take(5) // 最多显示 5 条
-        .map(|toast| {
-            let style = match toast.toast_type {
-                crate::app::ToastType::Info => Style::default().fg(Color::Cyan),
-                crate::app::ToastType::Success => Style::default().fg(Color::Green),
-                crate::app::ToastType::Warning => Style::default().fg(Color::Yellow),
-                crate::app::ToastType::Error => Style::default().fg(Color::Red),
-            };
-
-            // 截断消息以适应宽度
-            let max_width = area.width.saturating_sub(4) as usize;
-            let mut msg = toast.message.clone();
-            if msg.len() > max_width {
-                msg.truncate(max_width.saturating_sub(3));
-                msg.push_str("...");
+        .rev()
+        .take(area.height as usize - 2)
+        .map(|msg| {
+            if msg.starts_with("> ") {
+                Line::from(Span::styled(
+                    msg.clone(),
+                    Style::default().fg(Color::Yellow),
+                ))
+            } else if msg.starts_with("< ") {
+                Line::from(Span::styled(msg.clone(), Style::default().fg(Color::Green)))
+            } else {
+                Line::from(Span::styled(
+                    msg.clone(),
+                    Style::default().fg(Color::DarkGray),
+                ))
             }
-
-            ListItem::new(Line::from(Span::styled(msg, style)))
         })
         .collect();
 
-    let toast_list = List::new(toast_items).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title("通知")
-            .border_style(Style::default().fg(Color::Yellow)),
-    );
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::DarkGray));
 
-    f.render_widget(toast_list, area);
+    let paragraph = Paragraph::new(messages)
+        .block(block)
+        .wrap(Wrap { trim: false });
+
+    f.render_widget(paragraph, area);
+}
+
+/// 绘制输入栏
+fn draw_input(f: &mut Frame, area: Rect, state: &AppState) {
+    let input_text = format!("> {}_", state.input);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan));
+
+    let paragraph = Paragraph::new(input_text).block(block);
+    f.render_widget(paragraph, area);
 }

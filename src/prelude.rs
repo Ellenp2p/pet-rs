@@ -64,6 +64,7 @@ pub use crate::plugins::validator::{PluginValidator, ValidationResult};
 // AI modules
 pub use crate::ai::adapters::{AnthropicProvider, OpenAIProvider};
 pub use crate::ai::budget::{BudgetConfig, BudgetStatus, BudgetTracker};
+pub use crate::ai::manager::AIConfig;
 pub use crate::ai::pricing::PricingTable;
 pub use crate::ai::rate_limiter::RateLimiter;
 pub use crate::ai::usage::{UsageStats, UsageTracker};
