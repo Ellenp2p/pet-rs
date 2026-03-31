@@ -98,11 +98,18 @@ fn draw_messages(f: &mut Frame, area: Rect, state: &AppState) {
 /// 绘制输入栏
 fn draw_input(f: &mut Frame, area: Rect, state: &AppState) {
     let input_text = format!("> {}_", state.input);
+    let hint = "[ESC to quit]";
+
+    let line = Line::from(vec![
+        Span::styled(hint, Style::default().fg(Color::DarkGray)),
+        Span::raw(" "),
+        Span::raw(input_text),
+    ]);
 
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Cyan));
 
-    let paragraph = Paragraph::new(input_text).block(block);
+    let paragraph = Paragraph::new(line).block(block);
     f.render_widget(paragraph, area);
 }

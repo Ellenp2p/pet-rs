@@ -2,6 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+use tokio::sync::mpsc;
 
 use agent_pet_rs::prelude::AIProviderManager;
 
@@ -9,6 +11,12 @@ use crate::config::AppConfig;
 use crate::pet::Pet;
 
 const MAX_HISTORY: usize = 50;
+
+/// AI 调用结果
+pub enum AIResult {
+    Success(String),
+    Error(String),
+}
 
 /// 对话历史条目
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -65,11 +73,13 @@ impl ConversationHistory {
 pub struct AppState {
     pub pet: Pet,
     pub history: ConversationHistory,
-    pub ai: AIProviderManager,
+    pub ai: Arc<Mutex<AIProviderManager>>,
     pub config: AppConfig,
     pub running: bool,
     pub input: String,
     pub messages: Vec<String>, // 显示的消息列表
+    pub pending_request: bool, // 是否有 AI 请求在进行中
+    pub receiver: Option<mpsc::UnboundedReceiver<AIResult>>, // AI 响应接收器
 }
 
 impl AppState {
@@ -96,11 +106,13 @@ impl AppState {
         Ok(Self {
             pet,
             history,
-            ai,
+            ai: Arc::new(Mutex::new(ai)),
             config,
             running: true,
             input: String::new(),
             messages,
+            pending_request: false,
+            receiver: None,
         })
     }
 
@@ -173,6 +185,15 @@ impl AppState {
     /// 添加系统消息
     pub fn add_system_message(&mut self, content: &str) {
         self.messages.push(format!("  [{}]", content));
+    }
+
+    /// 移除最后一条系统消息
+    pub fn remove_last_system_message(&mut self) {
+        if let Some(last) = self.messages.last() {
+            if last.starts_with("  [") {
+                self.messages.pop();
+            }
+        }
     }
 }
 

@@ -3,7 +3,7 @@
 //! ## 运行
 //!
 //! ```bash
-//! cargo run --example pet_agent
+//! cargo run
 //! ```
 
 mod app;
@@ -20,14 +20,16 @@ use crossterm::{
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
 use std::time::{Duration, Instant};
+use tokio::sync::mpsc;
 
 use agent_pet_rs::prelude::*;
-use app::AppState;
+use app::{AIResult, AppState};
 use commands::Command;
 use config::AppConfig;
 use ui::draw_ui;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 1. 加载配置
     let config = AppConfig::load()?;
 
@@ -101,11 +103,31 @@ fn run_app(
     last_tick: &mut Instant,
     tick_rate: Duration,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    // 创建 tokio runtime 用于执行异步任务
+    let rt = tokio::runtime::Handle::current();
+
     while state.running {
         // 更新宠物状态 (每秒)
         if last_tick.elapsed() >= tick_rate {
             state.pet.update();
             *last_tick = Instant::now();
+        }
+
+        // 检查 AI 响应 (非阻塞)
+        if let Some(rx) = &mut state.receiver {
+            if let Ok(result) = rx.try_recv() {
+                state.remove_last_system_message(); // 移除 "Thinking..."
+                match result {
+                    AIResult::Success(content) => {
+                        state.add_assistant_message(&content);
+                    }
+                    AIResult::Error(e) => {
+                        state.add_system_message(&format!("Error: {}", e));
+                    }
+                }
+                state.pending_request = false;
+                state.receiver = None;
+            }
         }
 
         // 渲染 UI
@@ -119,7 +141,7 @@ fn run_app(
         if event::poll(timeout)? {
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
-                    handle_key(key.code, state)?;
+                    handle_key(key.code, state, &rt)?;
                 }
             }
         }
@@ -131,7 +153,11 @@ fn run_app(
     Ok(())
 }
 
-fn handle_key(key: KeyCode, state: &mut AppState) -> Result<(), Box<dyn std::error::Error>> {
+fn handle_key(
+    key: KeyCode,
+    state: &mut AppState,
+    rt: &tokio::runtime::Handle,
+) -> Result<(), Box<dyn std::error::Error>> {
     match key {
         KeyCode::Enter => {
             let input = state.input.trim().to_string();
@@ -142,13 +168,19 @@ fn handle_key(key: KeyCode, state: &mut AppState) -> Result<(), Box<dyn std::err
             state.input.clear();
 
             if input.starts_with('/') {
-                // 处理命令
+                // 命令立即执行，不受 pending_request 影响
                 let cmd = Command::parse(&input);
                 if let Some(response) = cmd.execute(state) {
                     state.add_system_message(&response);
                 }
             } else {
-                // 发送到 AI
+                // 普通消息需要检查是否有请求在进行中
+                if state.pending_request {
+                    state.add_system_message("Still thinking, please wait...");
+                    return Ok(());
+                }
+
+                // 发送到 AI (异步)
                 state.add_user_message(&input);
 
                 // 构建消息
@@ -161,15 +193,28 @@ fn handle_key(key: KeyCode, state: &mut AppState) -> Result<(), Box<dyn std::err
                 }];
                 messages.extend(state.history.to_chat_messages());
 
-                // 调用 AI
-                match state.ai.chat(messages) {
-                    Ok(response) => {
-                        state.add_assistant_message(&response.content);
+                // 创建 channel
+                let (tx, rx) = mpsc::unbounded_channel();
+                state.receiver = Some(rx);
+                state.pending_request = true;
+                state.add_system_message("Thinking...");
+
+                // 克隆 AI manager 用于后台任务
+                let ai = state.ai.clone();
+
+                // 在后台执行 AI 调用
+                rt.spawn_blocking(move || {
+                    // 获取锁并执行调用
+                    let mut manager = ai.lock().unwrap();
+                    match manager.chat(messages) {
+                        Ok(response) => {
+                            let _ = tx.send(AIResult::Success(response.content));
+                        }
+                        Err(e) => {
+                            let _ = tx.send(AIResult::Error(e.to_string()));
+                        }
                     }
-                    Err(e) => {
-                        state.add_system_message(&format!("Error: {}", e));
-                    }
-                }
+                });
             }
         }
         KeyCode::Char(c) => {

@@ -15,6 +15,9 @@ agent-pet-rs = { path = "../.." }
 ratatui = "0.28"
 crossterm = "0.28"
 
+# 异步
+tokio = { version = "1", features = ["full"] }
+
 # 序列化
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

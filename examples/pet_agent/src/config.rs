@@ -111,12 +111,26 @@ impl AppConfig {
             .iter()
             .filter(|(_, p)| p.enabled)
             .map(|(name, p)| {
-                let provider_type = ProviderType::from_name(name).unwrap_or(ProviderType::Custom);
+                // OpenAI 兼容的提供商使用 OpenAI 适配器
+                let provider_type = match name.to_lowercase().as_str() {
+                    "openrouter" | "groq" | "together" => ProviderType::OpenAI,
+                    other => ProviderType::from_name(other).unwrap_or(ProviderType::Custom),
+                };
                 let mut config = ProviderConfig::new(provider_type, &p.api_key);
                 config.model = p.model.clone();
+
+                // 根据提供商名称自动设置 api_base (如果配置中没有)
                 if let Some(base) = &p.api_base {
                     config.api_base = Some(base.clone());
+                } else {
+                    config.api_base = Some(match name.to_lowercase().as_str() {
+                        "openrouter" => "https://openrouter.ai/api/v1".to_string(),
+                        "groq" => "https://api.groq.com/openai/v1".to_string(),
+                        "together" => "https://api.together.xyz/v1".to_string(),
+                        _ => provider_type.default_api_base().to_string(),
+                    });
                 }
+
                 (name.clone(), config)
             })
             .collect();

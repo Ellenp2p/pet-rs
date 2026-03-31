@@ -146,8 +146,9 @@ impl AIProviderManager {
                 return Err(AIError::BudgetExceeded("预算已超限".to_string()));
             }
 
-            // 获取提供商
-            let provider = match self.builtin_providers.get(&provider_name) {
+            // 获取提供商 (根据 provider_type 而不是 name)
+            let provider_type_name = config.provider_type.name().to_string();
+            let provider = match self.builtin_providers.get(&provider_type_name) {
                 Some(p) => p,
                 None => {
                     if !self.switch_to_next() {
